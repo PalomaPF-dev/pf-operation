@@ -78,7 +78,7 @@ DATABASE_URL='1の接続文字列' node scripts/seed.mjs --with-sample-workers
 ## 6. 本運用に移すとき
 
 1. `PF_PROVISION_KEY` を**ポータルと同じ値**に変える（トライアル用の仮の値だと SSO が通らない）。
-2. 独自ドメイン `operation.pf-paloma.com` を割り当て、`NEXTAUTH_URL` をそれに変える。
+2. 独自ドメイン `operation.paloma-pf.com` を割り当て、`NEXTAUTH_URL` をそれに変える。
 3. ポータル側にアプリを登録する → [`portal-integration.md`](portal-integration.md)
 4. サンプル作業者を削除し、実際の作業者を登録する。
 5. `MASTER_EDIT_PIN` を運用のものに変える。
