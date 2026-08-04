@@ -22,7 +22,7 @@ async function safeDdl(run: () => Promise<unknown>): Promise<void> {
 let schemaReady: Promise<void> | null = null;
 
 /**
- * 操業管理のテーブルを冪等に作成する。
+ * 進捗管理のテーブルを冪等に作成する。
  * - op_users             … 利用者（ポータルから連携された管理者）
  * - op_factories         … 工場マスタ
  * - op_lines             … ラインマスタ（ライン実力・稼働時間・始業・休憩）

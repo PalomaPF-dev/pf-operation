@@ -1,7 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 
 /**
- * Neon Postgres 接続（PF操業管理 専用DB）。
+ * Neon Postgres 接続（PF進捗管理 専用DB）。
  * DATABASE_URL が無いビルド時にクラッシュしないよう遅延生成する。
  */
 export function getSql() {

@@ -1,6 +1,6 @@
-# PF操業管理（pf-operation）
+# PF進捗管理（pf-operation）
 
-生産・調達統括本部向け、**管理者専用**の操業管理アプリ。PFシリーズの1つとして、ポータル（pf-portal）から SSO で入って使う。
+生産・調達統括本部向け、**管理者専用**の進捗管理アプリ。PFシリーズの1つとして、ポータル（pf-portal）から SSO で入って使う。
 
 各工場の生産ラインについて
 
@@ -94,6 +94,19 @@ npm run dev
 | `npm run typecheck` | 型チェック |
 
 テーブルは初回アクセス時に `src/lib/schema.ts` が冪等に作成する（マイグレーションファイルは持たない）。
+
+## アプリアイコン
+
+PFシリーズ共通の作り（全面ベタの正方形＋左上→右下のグラデーション＋中央に lucide の白い線画。
+角丸は表示側の CSS が付けるので画像には焼き込まない）。グリフは lucide `trending-up`、
+配色はパープル（`#a855f7` → `#6b21a8`）でアプリのテーマ色と揃えている。
+
+```bash
+node scripts/make-icons.mjs   # public/icon-192.png・icon-512.png・apple-touch-icon.png を再生成
+```
+
+ポータルのアプリ一覧用アイコンは `public/icon-192.png` をそのまま `pf-portal` の
+`icons/operation.png` にコピーする。
 
 ## 技術構成
 

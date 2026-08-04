@@ -32,7 +32,7 @@ const TABS = [
 type TabKey = (typeof TABS)[number]["key"];
 
 const inputCls =
-  "rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600 disabled:bg-slate-50 disabled:text-slate-500";
+  "rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-purple-600 focus:outline-none focus:ring-1 focus:ring-purple-600 disabled:bg-slate-50 disabled:text-slate-500";
 const deleteCls =
   "rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-60";
 
@@ -81,7 +81,7 @@ export default async function MastersPage({
             href={`/masters?tab=${t.key}`}
             className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium ${
               t.key === tab
-                ? "border-teal-700 text-teal-700"
+                ? "border-purple-700 text-purple-700"
                 : "border-transparent text-slate-500 hover:text-slate-700"
             }`}
           >
@@ -126,7 +126,7 @@ function PinBar({ locked, configured }: { locked: boolean; configured: boolean }
           placeholder="PIN"
           autoComplete="off"
           required
-          className="w-40 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600"
+          className="w-40 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-purple-600 focus:outline-none focus:ring-1 focus:ring-purple-600"
         />
         <SubmitButton
           pendingLabel="確認中…"
@@ -168,7 +168,7 @@ function CapacityTab({
     return (
       <p className="text-sm text-slate-500">
         先に
-        <Link href="/masters?tab=factories" className="mx-1 text-teal-700 underline">
+        <Link href="/masters?tab=factories" className="mx-1 text-purple-700 underline">
           工場
         </Link>
         を登録してください。
@@ -374,7 +374,7 @@ function LineFields({
           name="active"
           defaultChecked={line?.active ?? true}
           disabled={locked}
-          className="h-4 w-4 rounded border-slate-300 text-teal-700 focus:ring-teal-600"
+          className="h-4 w-4 rounded border-slate-300 text-purple-700 focus:ring-purple-600"
         />
         稼働中
       </label>
@@ -395,7 +395,7 @@ function LinesTab({
     return (
       <p className="text-sm text-slate-500">
         先に
-        <Link href="/masters?tab=factories" className="mx-1 text-teal-700 underline">
+        <Link href="/masters?tab=factories" className="mx-1 text-purple-700 underline">
           工場
         </Link>
         を登録してください。
@@ -596,7 +596,7 @@ function WorkerFields({
           name="active"
           defaultChecked={worker?.active ?? true}
           disabled={locked}
-          className="h-4 w-4 rounded border-slate-300 text-teal-700 focus:ring-teal-600"
+          className="h-4 w-4 rounded border-slate-300 text-purple-700 focus:ring-purple-600"
         />
         在籍
       </label>
@@ -619,7 +619,7 @@ function WorkersTab({
     return (
       <p className="text-sm text-slate-500">
         先に
-        <Link href="/masters?tab=factories" className="mx-1 text-teal-700 underline">
+        <Link href="/masters?tab=factories" className="mx-1 text-purple-700 underline">
           工場
         </Link>
         を登録してください。

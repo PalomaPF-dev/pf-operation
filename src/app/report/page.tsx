@@ -56,7 +56,7 @@ export default async function ReportPage({
         <PageHeader title="進捗・残業の入力" />
         <div className="rounded-xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500">
           工場とラインの登録が必要です。
-          <Link href="/masters" className="ml-1 text-teal-700 underline">
+          <Link href="/masters" className="ml-1 text-purple-700 underline">
             マスタ設定
           </Link>
           から登録してください。

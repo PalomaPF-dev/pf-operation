@@ -42,12 +42,12 @@ export interface ReportDefaults {
 const pill = (on: boolean) =>
   `rounded-full border px-4 py-1.5 text-sm font-medium transition ${
     on
-      ? "border-teal-700 bg-teal-700 text-white"
+      ? "border-purple-700 bg-purple-700 text-white"
       : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
   }`;
 
 const inputCls =
-  "rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600";
+  "rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-purple-600 focus:outline-none focus:ring-1 focus:ring-purple-600";
 
 /**
  * 進捗チェック／終業後の入力フォーム。
@@ -474,7 +474,7 @@ export default function ReportForm({
                               return next;
                             })
                           }
-                          className="h-4 w-4 rounded border-slate-300 text-teal-700 focus:ring-teal-600"
+                          className="h-4 w-4 rounded border-slate-300 text-purple-700 focus:ring-purple-600"
                         />
                         <span className="tabular-nums text-slate-500">{w.employeeNo}</span>
                         <span className="font-medium text-slate-900">{w.name}</span>

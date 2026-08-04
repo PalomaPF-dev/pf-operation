@@ -16,11 +16,11 @@ const notoSansJP = Noto_Sans_JP({
 });
 
 export const metadata: Metadata = {
-  title: "PF操業管理",
+  title: "PF進捗管理",
   description:
     "生産ラインの進捗（定期報告）と残業申請を共有し、工場・職場ごとの残業と一人当たり出来高を集計する管理者向けアプリ",
   manifest: "/manifest.webmanifest",
-  appleWebApp: { capable: true, title: "PF操業管理", statusBarStyle: "default" },
+  appleWebApp: { capable: true, title: "PF進捗管理", statusBarStyle: "default" },
   icons: { icon: "/icon-192.png", apple: "/apple-touch-icon.png" },
 };
 

@@ -33,7 +33,7 @@ export default async function LoginPage({
         <div className="mb-5 flex flex-col items-center text-center">
           <Image src="/icon-192.png" alt="" width={48} height={48} className="mb-3 rounded-xl" />
           <p className="text-[11px] tracking-wide text-slate-400">株式会社パロマ</p>
-          <h1 className="text-lg font-bold text-slate-900">PF操業管理</h1>
+          <h1 className="text-lg font-bold text-slate-900">PF進捗管理</h1>
           <p className="mt-1 text-xs text-slate-500">進捗報告・残業申請（管理者専用）</p>
         </div>
 
@@ -45,12 +45,12 @@ export default async function LoginPage({
         ) : null}
 
         <p className="mb-4 text-xs leading-relaxed text-slate-600">
-          このアプリはポータルからログインします。ポータルでログインし、アプリ一覧から「操業管理」を選んでください。
+          このアプリはポータルからログインします。ポータルでログインし、アプリ一覧から「進捗管理」を選んでください。
         </p>
 
         <a
           href={PORTAL_URL}
-          className="flex w-full items-center justify-center rounded-lg bg-teal-700 px-4 py-2.5 text-sm font-medium text-white hover:bg-teal-800"
+          className="flex w-full items-center justify-center rounded-lg bg-purple-700 px-4 py-2.5 text-sm font-medium text-white hover:bg-purple-800"
         >
           ポータルへ移動
         </a>

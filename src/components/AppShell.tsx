@@ -32,8 +32,8 @@ const NAV_GROUPS: NavGroup[] = [
   },
 ];
 
-/** 操業管理のテーマ（ティール）。 */
-const ACCENT = "#0f766e";
+/** 進捗管理のテーマ（パープル）。アプリアイコンのグラデーションと合わせている。 */
+const ACCENT = "#7e22ce";
 
 /** ログインユーザー表示とログアウト。next-auth 依存のためアプリ側に置く。 */
 function UserFooter() {
@@ -76,14 +76,14 @@ function UserFooter() {
 }
 
 /**
- * 操業管理のシェル。共通の @paloma-pf/ui の AppShell に、
+ * 進捗管理のシェル。共通の @paloma-pf/ui の AppShell に、
  * このアプリ固有のナビ・テーマ・ユーザー表示を差し込む。
  */
 export default function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <BaseAppShell
       nav={NAV_GROUPS}
-      brand={{ eyebrow: "株式会社パロマ", title: "PF操業管理", subtitle: "進捗報告・残業申請" }}
+      brand={{ eyebrow: "株式会社パロマ", title: "PF進捗管理", subtitle: "進捗報告・残業申請" }}
       accent={ACCENT}
       navIndicator="pill"
       background="#f7f7f5"

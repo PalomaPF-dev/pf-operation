@@ -78,7 +78,7 @@ export async function GET(req: Request) {
 
     // 1ファイルに「ライン別」「作業者別」を続けて出す（間に空行と見出しを挟む）
     const csv = `${lineCsv}\r\n作業者別\r\n${workerCsv.replace(/^﻿/, "")}`;
-    return csvResponse(`操業集計_${from}_${to}.csv`, csv);
+    return csvResponse(`進捗集計_${from}_${to}.csv`, csv);
   } catch (e) {
     console.error("[summary/export]", e);
     return new Response("Internal Server Error", { status: 500 });

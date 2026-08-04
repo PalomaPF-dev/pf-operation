@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 /**
- * 認証済みページ（工場横断の操業データを描画）向けのセキュリティ強化。
+ * 認証済みページ（工場横断の進捗データを描画）向けのセキュリティ強化。
  * Next.js 16 で middleware は proxy に改名されたため、この名前で置く。
  *
  * - Cache-Control: 共有キャッシュ/CDN への滞留を防ぐ（force-dynamic で元々非キャッシュだが明示）。
