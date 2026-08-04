@@ -8,7 +8,7 @@ PF進捗管理を PFシリーズの1アプリとして組み込むために必�
 | --- | --- |
 | アプリキー | `operation` |
 | 表示名 | PF進捗管理 |
-| 想定URL | `https://operation.pf-paloma.co.jp` |
+| 想定URL | `https://operation.pf-paloma.com` |
 
 ## このアプリ側の環境変数（Vercel）
 
@@ -16,7 +16,7 @@ PF進捗管理を PFシリーズの1アプリとして組み込むために必�
 | --- | --- |
 | `DATABASE_URL` | Neon Postgres（このアプリ専用DB） |
 | `NEXTAUTH_SECRET` | next-auth のセッション署名鍵 |
-| `NEXTAUTH_URL` | `https://operation.pf-paloma.co.jp` |
+| `NEXTAUTH_URL` | `https://operation.pf-paloma.com` |
 | `PF_PROVISION_KEY` | ポータルと共有する鍵。SSO トークン検証と `/api/provision` の認証に使う。**ポータル側と同じ値** |
 | `MASTER_EDIT_PIN` | マスタ（ライン実力・稼働時間など）の編集ロックを外す PIN。未設定ならロック無効 |
 
@@ -25,7 +25,7 @@ PF進捗管理を PFシリーズの1アプリとして組み込むために必�
 1. `lib/appUrls.js` の `APP_BASE_URLS` に追加
 
    ```js
-   operation: "https://operation.pf-paloma.co.jp",
+   operation: "https://operation.pf-paloma.com",
    ```
 
 2. `lib/db.js` の `ALL_APP_KEYS`（部署に割り当てられるアプリ一覧）に `operation` を追加
@@ -49,7 +49,7 @@ PF進捗管理を PFシリーズの1アプリとして組み込むために必�
 ```
 ポータル /api/user?launch=operation
   → 署名トークン（loginId / name / role / app / exp、TTL 60秒、HMAC-SHA256 = PF_PROVISION_KEY）
-  → 302 https://operation.pf-paloma.co.jp/api/sso?token=...
+  → 302 https://operation.pf-paloma.com/api/sso?token=...
       ├ 署名・app・期限を検証
       ├ op_users に upsert（氏名・役割・所属工場はポータルを正として毎回上書き）
       ├ role !== 'admin' なら /login?error=forbidden

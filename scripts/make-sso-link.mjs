@@ -6,7 +6,7 @@
  * ポータルと同じ形式のトークンを手元で発行し、ログインを試せるようにする。
  *
  *   PF_PROVISION_KEY=xxxx node scripts/make-sso-link.mjs \
- *     --url https://operation.pf-paloma.co.jp \
+ *     --url https://operation.pf-paloma.com \
  *     --login-id 12345 --name "山田 太郎"
  *
  * 出力された URL を60秒以内にブラウザで開くとログインできる。
