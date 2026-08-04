@@ -78,6 +78,20 @@
 
 詳細は [`docs/portal-integration.md`](docs/portal-integration.md)。
 
+## トライアル
+
+ポータルへの登録を待たずに、このアプリだけを立ち上げて試せる。手順は
+[`docs/trial.md`](docs/trial.md)（Neon＋Vercel、ログインリンクの発行、マスタ投入まで）。
+
+```bash
+# ポータル登録前のログインリンクを発行する（60秒有効）
+PF_PROVISION_KEY=xxxx node scripts/make-sso-link.mjs \
+  --url https://pf-operation.vercel.app --login-id 12345 --name "山田 太郎"
+
+# 画面サンプルの清洲工場のライン実力を投入する（冪等）
+DATABASE_URL=postgres://... node scripts/seed.mjs --with-sample-workers
+```
+
 ## 開発
 
 ```bash
