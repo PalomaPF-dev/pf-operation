@@ -1,9 +1,8 @@
 import Image from "next/image";
 import { ShieldAlert } from "lucide-react";
+import { PORTAL_URL } from "@/lib/portal";
 
 export const dynamic = "force-dynamic";
-
-const PORTAL_URL = "https://portal.paloma-pf.com/";
 
 const ERROR_MESSAGE: Record<string, string> = {
   sso: "ログイン情報を確認できませんでした。ポータルからもう一度お入りください。",

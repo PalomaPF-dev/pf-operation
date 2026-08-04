@@ -11,6 +11,7 @@ import {
   Mail,
 } from "lucide-react";
 import { AppShell as BaseAppShell, type NavGroup } from "@paloma-pf/ui";
+import { PORTAL_CONTACT_URL, PORTAL_URL } from "@/lib/portal";
 
 const NAV_GROUPS: NavGroup[] = [
   {
@@ -52,7 +53,7 @@ function UserFooter() {
       </div>
       <div className="mb-2 text-[10px] leading-snug text-[#909090]">管理者専用アプリ</div>
       <a
-        href="https://portal.paloma-pf.com/?contact=operation"
+        href={PORTAL_CONTACT_URL}
         target="_blank"
         rel="noopener noreferrer"
         className="mb-2 flex w-full items-center justify-center gap-2 rounded-lg border border-[#e5e5e5] px-3 py-2 text-xs font-medium text-[#555555] hover:bg-[#f7f7f5]"
@@ -63,7 +64,7 @@ function UserFooter() {
       <button
         onClick={() => {
           void signOut({ redirect: false }).then(() => {
-            window.location.href = "https://portal.paloma-pf.com/";
+            window.location.href = PORTAL_URL;
           });
         }}
         className="flex w-full items-center justify-center gap-2 rounded-lg border border-[#e5e5e5] px-3 py-2 text-xs font-medium text-[#555555] hover:bg-[#f7f7f5]"
@@ -87,6 +88,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       accent={ACCENT}
       navIndicator="pill"
       background="#f7f7f5"
+      portalUrl={PORTAL_URL}
       bareRoutes={["/login"]}
       sidebarFooter={<UserFooter />}
     >
