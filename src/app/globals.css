@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+/* 共通UIパッケージ（@paloma-pf/ui）内のクラスも Tailwind の検出対象にする */
+@source "../../node_modules/@paloma-pf/ui/src";
+
+/* サイドバーを常時表示する条件：幅が広く かつ 高さも十分（=タブレット/PC）。 */
+@custom-variant wide (@media (min-width: 768px) and (min-height: 600px));
+
+:root {
+  --background: #f7f7f5;
+  --foreground: #0f172a;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  /* --font-sans = next/font で配信する Noto Sans JP（layout.tsx で設定）。
+     読み込み前・未対応時のみ OS 標準にフォールバックする */
+  font-family: var(--font-sans), -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "Hiragino Kaku Gothic ProN", "Hiragino Sans", Meiryo, Arial, sans-serif;
+}
+
+/* 印刷時：画面用UI（サイドバー等）を隠して一覧・集計表を全ページ印刷する */
+@media print {
+  .no-print { display: none !important; }
+  html, body { height: auto !important; overflow: visible !important; background: #fff !important; }
+  .print-root { height: auto !important; overflow: visible !important; display: block !important; }
+  .print-main { height: auto !important; overflow: visible !important; }
+  /* 見出し帯・ゼブラ縞の背景色を、印刷の既定設定でも再現する */
+  .print-table thead tr,
+  .print-table tbody tr:nth-child(even) {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  table { page-break-inside: auto; }
+  tr { page-break-inside: avoid; }
+  thead { display: table-header-group; }
+  @page { size: A4 landscape; margin: 10mm; }
+}
