@@ -60,7 +60,7 @@ export default async function DashboardPage({
   const otHeads = statuses.reduce((s, x) => s + x.overtimeHeads, 0);
 
   const inputCls =
-    "rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-purple-600 focus:outline-none focus:ring-1 focus:ring-purple-600";
+    "rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600";
 
   return (
     <div className="p-4 sm:p-6">
@@ -70,7 +70,7 @@ export default async function DashboardPage({
         actions={
           <Link
             href="/report"
-            className="rounded-lg bg-purple-700 px-4 py-2 text-sm font-medium text-white hover:bg-purple-800"
+            className="rounded-lg bg-brand-700 px-4 py-2 text-sm font-medium text-white hover:bg-brand-800"
           >
             進捗を入力する
           </Link>
@@ -134,7 +134,7 @@ export default async function DashboardPage({
       {statuses.length === 0 ? (
         <div className="rounded-xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500">
           ラインが登録されていません。
-          <Link href="/masters" className="ml-1 text-purple-700 underline">
+          <Link href="/masters" className="ml-1 text-brand-700 underline">
             マスタ設定
           </Link>
           から登録してください。
@@ -166,7 +166,7 @@ export default async function DashboardPage({
                     <td className="px-3 py-2">
                       <Link
                         href={`/report?line=${s.line.id}&factory=${s.line.factoryId}&date=${date}`}
-                        className="font-medium text-purple-700 hover:underline"
+                        className="font-medium text-brand-700 hover:underline"
                       >
                         {s.line.name}
                       </Link>

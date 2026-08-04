@@ -64,7 +64,7 @@ export default async function ReportsPage({
   const otHeads = reports.reduce((s, r) => s + r.members.length, 0);
 
   const inputCls =
-    "rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-purple-600 focus:outline-none focus:ring-1 focus:ring-purple-600";
+    "rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600";
 
   return (
     <div className="p-4 sm:p-6">
@@ -74,7 +74,7 @@ export default async function ReportsPage({
         actions={
           <Link
             href="/report"
-            className="rounded-lg bg-purple-700 px-4 py-2 text-sm font-medium text-white hover:bg-purple-800"
+            className="rounded-lg bg-brand-700 px-4 py-2 text-sm font-medium text-white hover:bg-brand-800"
           >
             新規入力
           </Link>

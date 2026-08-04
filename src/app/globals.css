@@ -6,6 +6,19 @@
 /* サイドバーを常時表示する条件：幅が広く かつ 高さも十分（=タブレット/PC）。 */
 @custom-variant wide (@media (min-width: 768px) and (min-height: 600px));
 
+/* アプリのテーマ色（茶系）。アプリアイコンのグラデーションと同じ系統に揃えている。
+   Tailwind には茶色のパレットが無いので、brand-* として自前で定義する。 */
+@theme {
+  --color-brand-50: #faf5f0;
+  --color-brand-100: #f1e6da;
+  --color-brand-200: #ddc6ad;
+  --color-brand-500: #a97142;
+  --color-brand-600: #8a5a33;
+  --color-brand-700: #6b4426;
+  --color-brand-800: #55351d;
+  --color-brand-900: #402816;
+}
+
 :root {
   --background: #f7f7f5;
   --foreground: #0f172a;

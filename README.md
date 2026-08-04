@@ -98,8 +98,9 @@ npm run dev
 ## アプリアイコン
 
 PFシリーズ共通の作り（全面ベタの正方形＋左上→右下のグラデーション＋中央に lucide の白い線画。
-角丸は表示側の CSS が付けるので画像には焼き込まない）。グリフは lucide `trending-up`、
-配色はパープル（`#a855f7` → `#6b21a8`）でアプリのテーマ色と揃えている。
+角丸は表示側の CSS が付けるので画像には焼き込まない）。グリフは lucide `clock`（決められた時刻に
+進捗をチェックする、というアプリの中身）、配色は茶系（`#a97142` → `#4a2c17`）。
+画面側のテーマ色も同じ系統で、`src/app/globals.css` の `@theme` に `brand-*` として定義している。
 
 ```bash
 node scripts/make-icons.mjs   # public/icon-192.png・icon-512.png・apple-touch-icon.png を再生成

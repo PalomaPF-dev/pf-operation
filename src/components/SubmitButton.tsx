@@ -25,7 +25,7 @@ export default function SubmitButton({
       }}
       className={
         className ??
-        "rounded-lg bg-purple-700 px-4 py-2 text-sm font-medium text-white hover:bg-purple-800 disabled:opacity-60"
+        "rounded-lg bg-brand-700 px-4 py-2 text-sm font-medium text-white hover:bg-brand-800 disabled:opacity-60"
       }
     >
       {pending ? pendingLabel : children}

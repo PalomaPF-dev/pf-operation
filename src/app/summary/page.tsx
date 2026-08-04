@@ -86,7 +86,7 @@ export default async function SummaryPage({
   if (lineId) qs.set("line", lineId);
 
   const inputCls =
-    "rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-purple-600 focus:outline-none focus:ring-1 focus:ring-purple-600";
+    "rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600";
 
   return (
     <div className="p-4 sm:p-6">

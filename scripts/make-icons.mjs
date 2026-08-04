@@ -6,8 +6,8 @@
  * - 左上→右下の斜めグラデーション
  * - 中央に lucide のアイコンを白の線画で置く（24 の座標系を 4 倍して 192 の中央に配置）
  *
- * グリフは lucide "trending-up"（計画に対する進み具合＝進捗）。
- * 線は「線分の集合からの距離」で描くので、round cap / round join が自然に出る。
+ * グリフは lucide "clock"（決められた時刻に進捗をチェックする、というアプリの中身）。
+ * 線は「図形からの距離」で描くので、round cap / round join が自然に出る。
  *
  *   node scripts/make-icons.mjs
  */
@@ -18,31 +18,27 @@ import zlib from "node:zlib";
 /** 基準となる座標系（192×192）。出力サイズが変わっても比率は変えない。 */
 const BASE = 192;
 
-/** 背景グラデーション（左上 → 右下）。 */
-const FROM = [168, 85, 247]; // #a855f7
-const TO = [107, 33, 168]; // #6b21a8
+/** 背景グラデーション（左上 → 右下）。茶系。 */
+const FROM = [169, 113, 66]; // #a97142
+const TO = [74, 44, 23]; // #4a2c17
 
 /** 線の太さ（192 の座標系で）。lucide の stroke-width 2.5 × 4。 */
 const STROKE = 10;
 
 /**
- * グリフの折れ線（192 の座標系）。
- * lucide "trending-up" の path（M16 7h6v6 / m22 7-8.5 8.5-5-5L2 17）を
+ * グリフ（192 の座標系）。
+ * lucide "clock"（circle cx12 cy12 r10 / path M12 6v6l4 2）を
  * translate(48,48) scale(4) したもの。
  */
 const POLYLINES = [
   [
-    [112, 76],
-    [136, 76],
-    [136, 100],
-  ],
-  [
-    [136, 76],
-    [102, 110],
-    [82, 90],
-    [56, 116],
+    [96, 72],
+    [96, 96],
+    [112, 104],
   ],
 ];
+
+const CIRCLES = [{ cx: 96, cy: 96, r: 40 }];
 
 /** 点 p と線分 ab の距離。round cap / round join はこの距離だけで表現できる。 */
 function distToSegment(px, py, ax, ay, bx, by) {
@@ -55,7 +51,7 @@ function distToSegment(px, py, ax, ay, bx, by) {
   return Math.hypot(px - qx, py - qy);
 }
 
-/** グリフ全体（全折れ線）からの最短距離。 */
+/** グリフ全体（折れ線＋円）からの最短距離。円は「輪郭までの距離」。 */
 function distToGlyph(px, py) {
   let min = Infinity;
   for (const line of POLYLINES) {
@@ -63,6 +59,10 @@ function distToGlyph(px, py) {
       const d = distToSegment(px, py, line[i][0], line[i][1], line[i + 1][0], line[i + 1][1]);
       if (d < min) min = d;
     }
+  }
+  for (const c of CIRCLES) {
+    const d = Math.abs(Math.hypot(px - c.cx, py - c.cy) - c.r);
+    if (d < min) min = d;
   }
   return min;
 }

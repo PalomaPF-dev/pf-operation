@@ -50,7 +50,7 @@ export default async function LoginPage({
 
         <a
           href={PORTAL_URL}
-          className="flex w-full items-center justify-center rounded-lg bg-purple-700 px-4 py-2.5 text-sm font-medium text-white hover:bg-purple-800"
+          className="flex w-full items-center justify-center rounded-lg bg-brand-700 px-4 py-2.5 text-sm font-medium text-white hover:bg-brand-800"
         >
           ポータルへ移動
         </a>
