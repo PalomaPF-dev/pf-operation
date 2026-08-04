@@ -33,7 +33,7 @@ const NAV_GROUPS: NavGroup[] = [
 ];
 
 /** 進捗管理のテーマ（茶系）。アプリアイコンのグラデーションと合わせている。 */
-const ACCENT = "#8a6142";
+const ACCENT = "#9a6c48";
 
 /** ログインユーザー表示とログアウト。next-auth 依存のためアプリ側に置く。 */
 function UserFooter() {

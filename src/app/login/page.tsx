@@ -16,8 +16,11 @@ const ERROR_MESSAGE: Record<string, string> = {
 
 /**
  * ログイン画面。
- * このアプリはポータル（pf-portal）の SSO でしかログインできないため、
- * 入力欄は持たず、ポータルへの導線とエラー内容だけを出す。
+ *
+ * 見た目は PFシリーズ共通のログイン画面（上部のアクセントライン＋中央のカード＋
+ * アイコン・部門名・アプリ名の見出し）に合わせている。
+ * ただしこのアプリはポータル（pf-portal）の SSO でしかログインできないため、
+ * 社員番号・パスワードの入力欄は持たず、ポータルへの導線だけを置く。
  */
 export default async function LoginPage({
   searchParams,
@@ -28,32 +31,69 @@ export default async function LoginPage({
   const message = sp.error ? (ERROR_MESSAGE[sp.error] ?? ERROR_MESSAGE.sso) : null;
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#f7f7f5] p-6">
-      <div className="w-full max-w-sm rounded-2xl border border-[#e5e5e5] bg-white p-6 shadow-sm">
-        <div className="mb-5 flex flex-col items-center text-center">
-          <Image src="/icon-192.png" alt="" width={48} height={48} className="mb-3 rounded-xl" />
-          <p className="text-[11px] tracking-wide text-slate-400">株式会社パロマ</p>
-          <h1 className="text-lg font-bold text-slate-900">PF進捗管理</h1>
-          <p className="mt-1 text-xs text-slate-500">進捗報告・残業申請（管理者専用）</p>
-        </div>
+    <div className="flex min-h-screen flex-col bg-[#f7f7f5]">
+      <div className="h-1 shrink-0 bg-brand-700" />
+      <div className="flex flex-1 items-center justify-center p-4">
+        <div className="w-full max-w-md">
+          <div className="rounded-2xl border border-[#e5e5e5] bg-white px-8 py-8">
+            <div className="mb-6 flex flex-col items-center text-center">
+              <Image
+                src="/icon-192.png"
+                alt=""
+                width={64}
+                height={64}
+                className="mx-auto mb-3 h-16 w-16 rounded-2xl"
+              />
+              <p className="text-xs tracking-wide text-[#707070]">生産・調達統括本部</p>
+              <h1 className="text-xl font-bold text-[#333333]">PF進捗管理</h1>
+              <p className="mt-1 text-xs text-[#707070]">進捗報告・残業申請（管理者専用）</p>
+            </div>
 
-        {message ? (
-          <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-relaxed text-amber-900">
-            <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
-            <span>{message}</span>
+            {message ? (
+              <div className="mb-4 flex items-start gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm leading-relaxed text-amber-900">
+                <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{message}</span>
+              </div>
+            ) : null}
+
+            <h2 className="mb-6 text-lg font-semibold text-[#333333] after:mt-2 after:block after:h-[3px] after:w-8 after:rounded-full after:bg-brand-700 after:content-['']">
+              ログイン
+            </h2>
+
+            <p className="mb-4 text-sm leading-relaxed text-[#555555]">
+              このアプリはポータルからログインします。ポータルでログインし、アプリ一覧から「進捗管理」を選んでください。
+            </p>
+
+            <a
+              href={PORTAL_URL}
+              className="block w-full rounded-lg bg-brand-700 px-4 py-2.5 text-center text-sm font-semibold text-white transition-colors hover:bg-brand-800"
+            >
+              ポータルから一括ログイン
+            </a>
+            <p className="mt-1 text-center text-xs text-[#707070]">
+              ポータルでログインすると各アプリは自動でログインされます
+            </p>
+
+            <div className="mt-4 rounded-lg border border-brand-700/40 bg-brand-50 px-3 py-2.5 text-center text-sm text-[#555555]">
+              利用できるのは<span className="font-semibold">管理者</span>のみです
+              <p className="mt-1 text-xs text-[#707070]">
+                権限が必要な場合はポータルの管理者にご依頼ください
+              </p>
+            </div>
           </div>
-        ) : null}
 
-        <p className="mb-4 text-xs leading-relaxed text-slate-600">
-          このアプリはポータルからログインします。ポータルでログインし、アプリ一覧から「進捗管理」を選んでください。
-        </p>
-
-        <a
-          href={PORTAL_URL}
-          className="flex w-full items-center justify-center rounded-lg bg-brand-700 px-4 py-2.5 text-sm font-medium text-white hover:bg-brand-800"
-        >
-          ポータルへ移動
-        </a>
+          <p className="mt-6 text-center text-xs text-[#707070]">
+            生産ラインの進捗を決められた時刻に記録し、残業の申請と一人当たり出来高の検証まで行う社内ツール
+          </p>
+          <div className="mt-3 text-center">
+            <a
+              href={PORTAL_URL}
+              className="text-sm text-[#707070] transition-colors hover:text-brand-700"
+            >
+              ← ポータルへ戻る
+            </a>
+          </div>
+        </div>
       </div>
     </div>
   );

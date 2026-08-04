@@ -10,18 +10,19 @@
    画面では少し明るめ（薄め）に振っている。
    Tailwind には茶色のパレットが無いので、brand-* として自前で定義する。
    ※ brand-700 は白文字のボタン・白背景のリンクに使うため、
-     コントラスト比 4.5:1 以上（現在 5.4:1）を下回らない範囲で薄くすること。 */
+     コントラスト比 4.5:1 以上（現在 4.6:1）を下回らない範囲で薄くすること。
+     これ以上薄くすると小さい文字が読みにくくなるので、その場合は文字色を濃くする側で調整する。 */
 @theme {
-  --color-brand-50: #faf6f2;
-  --color-brand-100: #f3e9df;
-  --color-brand-200: #e3d0ba;
-  --color-brand-300: #cfb094;
-  --color-brand-400: #b8906e;
-  --color-brand-500: #a97a55;
-  --color-brand-600: #9a6c48;
-  --color-brand-700: #8a6142;
-  --color-brand-800: #745136;
-  --color-brand-900: #5b3f2a;
+  --color-brand-50: #fbf8f5;
+  --color-brand-100: #f5ede4;
+  --color-brand-200: #e8d7c3;
+  --color-brand-300: #d6bba0;
+  --color-brand-400: #c19d7c;
+  --color-brand-500: #b08a63;
+  --color-brand-600: #a97a55;
+  --color-brand-700: #9a6c48;
+  --color-brand-800: #8a6142;
+  --color-brand-900: #6f4c33;
 }
 
 :root {
