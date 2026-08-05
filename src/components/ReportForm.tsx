@@ -116,6 +116,16 @@ export default function ReportForm({
   const otMins = Math.max(0, Math.round(Number(otMinutes)) || 0);
   const totalMinutes = otHeads * otMins;
 
+  // 残業でどの程度解消できるか（時間当たり出来高 × 残業時間。人数が在籍数より少なければ人数比で換算）
+  const shortage = Math.max(gap, shortfallVsPlan);
+  const otRecoverQty = (() => {
+    if (!line || otMins <= 0) return 0;
+    const rate = hourlyRate({ ...line, startTime });
+    const ratio = line.headcount > 0 && otHeads > 0 ? Math.min(otHeads / line.headcount, 1) : 1;
+    return Math.round((rate * ratio * otMins) / 60);
+  })();
+  const recoverPct = shortage > 0 ? Math.min(100, Math.round((otRecoverQty / shortage) * 100)) : null;
+
   /** 日付・工場・ラインを変えたら、その組み合わせのデータを読み直す。 */
   const navigate = (next: { date?: string; factoryId?: string; lineId?: string }) => {
     const d = next.date ?? date;
@@ -439,6 +449,31 @@ export default function ReportForm({
                 （{otHeads}名 × {otMins}分）
               </p>
             </div>
+            {/* この残業で不足がどの程度解消するか（時間当たり出来高 × 残業時間） */}
+            {shortage > 0 && otRecoverQty > 0 ? (
+              <p className="mt-2 text-sm">
+                {recoverPct !== null && recoverPct >= 100 ? (
+                  <span className="text-emerald-700">
+                    この残業で約{otRecoverQty}
+                    {qty.unit}できるため、不足 {shortage}
+                    {qty.unit} は<strong className="font-semibold">解消できる見込み</strong>です。
+                  </span>
+                ) : (
+                  <span className="text-slate-700">
+                    この残業で約{otRecoverQty}
+                    {qty.unit}できるため、不足 {shortage}
+                    {qty.unit} のうち
+                    <strong className="font-semibold text-amber-700">
+                      約{recoverPct}%を解消
+                    </strong>
+                    <span className="text-rose-600">
+                      （残り約{Math.max(0, shortage - otRecoverQty)}
+                      {qty.unit}）
+                    </span>
+                  </span>
+                )}
+              </p>
+            ) : null}
           </div>
         ) : null}
 
