@@ -99,3 +99,41 @@ export async function upsertPortalUser(
   const row = rows[0] as Record<string, unknown>;
   return { user: toUser(row), created: row.inserted === true };
 }
+
+/**
+ * 承認者（上長）用のユーザー行を確保する。
+ * まだログインしていない上長でも承認ルートに指定できるよう、最小限の行だけ作る
+ * （role は 'member' で作り、本人が SSO したときにポータルの値で上書きされる）。
+ * 既に居る場合は何も変えず、その行を返す。
+ */
+export async function ensureUserStub(loginId: string, name: string): Promise<AppUser> {
+  await ensureSchema();
+  const sql = getSql();
+  const rows = await sql`
+    INSERT INTO op_users (login_id, name, role)
+    VALUES (${loginId}, ${name}, 'member')
+    ON CONFLICT (login_id) DO UPDATE SET login_id = EXCLUDED.login_id
+    RETURNING id, login_id, name, email, role, factory, department, portal_admin, approver_id`;
+  return toUser(rows[0] as Record<string, unknown>);
+}
+
+/**
+ * ポータルの承認者（上司）設定を反映する。ポータルを正として毎回上書きする。
+ * approverLoginId が null なら未設定（申請は生産管理部宛て）。自分自身は設定しない。
+ */
+export async function syncApproverFromPortal(
+  user: AppUser,
+  approverLoginId: string | null,
+  approverName: string | null
+): Promise<void> {
+  let approverId: string | null = null;
+  if (approverLoginId && approverLoginId !== user.loginId) {
+    const approver = await ensureUserStub(approverLoginId, approverName ?? approverLoginId);
+    approverId = approver.id;
+  }
+  if (approverId === user.approverId) return;
+  const sql = getSql();
+  await sql`
+    UPDATE op_users SET approver_id = ${approverId}, updated_at = now()
+    WHERE id = ${user.id}`;
+}

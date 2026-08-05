@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { timingSafeEqual } from "crypto";
-import { upsertPortalUser } from "@/lib/authDb";
+import { syncApproverFromPortal, upsertPortalUser } from "@/lib/authDb";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -63,7 +63,7 @@ export async function POST(req: Request) {
       continue;
     }
     try {
-      const { created } = await upsertPortalUser({
+      const { user, created } = await upsertPortalUser({
         loginId,
         name,
         email: typeof u?.email === "string" ? u.email.trim() : null,
@@ -71,7 +71,14 @@ export async function POST(req: Request) {
         factory: typeof u?.factory === "string" ? u.factory.trim() : null,
         // 所属部署。マスタを編集できるかの判定に使う（ポータルが送らなければ SSO 時に補われる）
         department: typeof u?.department === "string" ? u.department.trim() : null,
+        // ポータル管理権限。項目が無い旧ポータルからは null（既存値を保つ）
+        portalAdmin: typeof u?.canManage === "boolean" ? u.canManage : null,
       });
+      // ポータルの承認者（上司）設定。項目があるときだけ反映する
+      if (u && "approverLoginId" in u) {
+        const a = u.approverLoginId;
+        await syncApproverFromPortal(user, typeof a === "string" && a ? a : null, null);
+      }
       results.push({ loginId, status: created ? "created" : "exists", passwordSet: true });
     } catch (e) {
       console.error("[provision]", loginId, e);

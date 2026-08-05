@@ -48,8 +48,8 @@ PF進捗管理を PFシリーズの1アプリとして組み込むために必�
 
 ```
 ポータル /api/user?launch=operation
-  → 署名トークン（loginId / name / role / department / canManage / app / exp、
-     TTL 60秒、HMAC-SHA256 = PF_PROVISION_KEY）
+  → 署名トークン（loginId / name / role / department / canManage /
+     approverLoginId / approverName / app / exp、TTL 60秒、HMAC-SHA256 = PF_PROVISION_KEY）
   → 302 https://operation.paloma-pf.com/api/sso?token=...
       ├ 署名・app・期限を検証
       ├ op_users に upsert（氏名・役割・所属工場・所属部署はポータルを正として毎回上書き）
@@ -70,6 +70,11 @@ PF進捗管理を PFシリーズの1アプリとして組み込むために必�
 ポータル側は `api/user.js` の launch トークンに `department: profile.departmentName` と
 `canManage: profile.canManage === true` を含めること。どちらも送られてこないユーザーは閲覧のみになる。
 `canManage` は SSO で受け取った値を `op_users.portal_admin` に保持し、判定は毎回 DB から引き直す。
+
+`approverLoginId` / `approverName`（ポータルの承認者＝上司設定）は**残業申請の承認ルート**に使う。
+申請者（管理者）→ 承認者 → 生産管理部の順で、SSO ログインのたびにポータルを正として
+`op_users.approver_id` へ同期する（未ログインの上長はスタブ行を作って参照する）。
+プロビジョニング API の `approverLoginId` でも同じ同期が走る。
 
 ## プロビジョニング API
 

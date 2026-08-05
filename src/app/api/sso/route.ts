@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createHmac, timingSafeEqual } from "crypto";
 import { encode } from "next-auth/jwt";
-import { upsertPortalUser } from "@/lib/authDb";
+import { syncApproverFromPortal, upsertPortalUser } from "@/lib/authDb";
 import { SESSION_COOKIE_NAME, SESSION_MAX_AGE, useSecureCookies } from "@/lib/authOptions";
 
 export const runtime = "nodejs";
@@ -36,6 +36,11 @@ interface SsoClaims {
   department: string | null;
   /** ポータルの管理権限（canManage）。部署によらずマスタを編集できる */
   portalAdmin: boolean;
+  /**
+   * ポータルの承認者（上司）設定。残業申請の承認ルートに使う。
+   * undefined はトークンにこの項目が無い（旧形式）＝既存設定を保つ。null は「承認者なし」。
+   */
+  approver?: { loginId: string; name: string | null } | null;
 }
 
 /** トークンを検証し、有効なら中身を返す（無効は null）。 */
@@ -53,10 +58,8 @@ function verifySsoToken(token: string, key: string): SsoClaims | null {
     return null;
   }
   if (typeof data !== "object" || data === null) return null;
-  const { loginId, name, role, factory, department, canManage, app, exp } = data as Record<
-    string,
-    unknown
-  >;
+  const { loginId, name, role, factory, department, canManage, approverLoginId, approverName, app, exp } =
+    data as Record<string, unknown>;
   if (typeof loginId !== "string" || loginId.length === 0) return null;
   if (app !== APP_KEY) return null;
   if (typeof exp !== "number" || !(exp > Date.now())) return null;
@@ -67,6 +70,15 @@ function verifySsoToken(token: string, key: string): SsoClaims | null {
     factory: typeof factory === "string" && factory ? factory : null,
     department: typeof department === "string" && department ? department : null,
     portalAdmin: canManage === true,
+    // approverLoginId キー自体が無い旧トークンでは undefined（＝既存設定を保つ）
+    approver: !("approverLoginId" in (data as object))
+      ? undefined
+      : typeof approverLoginId === "string" && approverLoginId
+        ? {
+            loginId: approverLoginId,
+            name: typeof approverName === "string" && approverName ? approverName : null,
+          }
+        : null,
   };
 }
 
@@ -101,6 +113,16 @@ export async function GET(req: Request) {
     } catch (e) {
       console.error("[sso] database:", e);
       return fail("db");
+    }
+
+    // ポータルの承認者（上司）設定を反映する（申請者→承認者→生産管理部 の承認ルート）。
+    // 承認者の反映に失敗してもログイン自体は通す（申請時は生産管理部宛てに倒れるだけ）。
+    if (claims.approver !== undefined) {
+      try {
+        await syncApproverFromPortal(user, claims.approver?.loginId ?? null, claims.approver?.name ?? null);
+      } catch (e) {
+        console.error("[sso] approver sync:", e);
+      }
     }
 
     // 管理者専用。一般ユーザーはセッションを発行しない

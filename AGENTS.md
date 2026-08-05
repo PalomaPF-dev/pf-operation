@@ -21,7 +21,8 @@ Notably in this repo: the `middleware` file convention is deprecated and renamed
 - 入力できるラインは、ログインID＝グループ長マスタ（`op_workers`＝ラインの残業申請者）の
   社員番号の一致で絞る（`getUserScope`）。
   画面の絞り込みだけでなく、`saveReportAction` でも `isLineInScope` で必ず検証する。
-- 残業の承認ワークフロー：実施(do)＝報告者の上長（`op_users.approver_id`、未設定なら生産管理部）が承認し、
+- 残業の承認ワークフロー：実施(do)＝報告者の上長（`op_users.approver_id`＝ポータルの承認者設定を
+  SSO・プロビジョニングで同期。未設定なら生産管理部）が承認し、
   承認済みが生産管理部へ届く。翌日回し(defer)＝生産管理部（`canEditMaster`）が許可する。
   承認の権限判定は `approveReportAction` に集約。報告を上書きすると承認は pending に戻る。
 - 残業の申請内容は「人数 × 一人当たりの分」（`op_reports.overtime_headcount / overtime_minutes`）。
