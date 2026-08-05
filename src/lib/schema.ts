@@ -27,7 +27,7 @@ let schemaReady: Promise<void> | null = null;
  * - op_factories         … 工場マスタ
  * - op_lines             … ラインマスタ（ライン実力・稼働時間・始業・休憩）
  * - op_line_breaks       … 休憩時間帯（理論値の計算で差し引く）
- * - op_workers           … グループ長（ラインの残業有無の申請者）
+ * - op_workers           … 旧グループ長マスタ（未使用。互換のため残置）
  * - op_daily_plans       … 日ごとの計画数・始業・投入人数
  * - op_reports           … 定期報告（進捗チェック／終業後）と残業の要否
  * - op_overtime_members  … 残業の対象者と時間
@@ -122,9 +122,8 @@ async function buildSchema(): Promise<void> {
       UNIQUE (line_id, start_time)
     )`);
 
-  // op_workers ＝ グループ長（ラインの残業有無の申請者）。
-  // 社員番号がログインIDと一致すると、入力画面がその担当ラインに絞られる。
-  // ※ テーブル名は歴史的に workers のまま（冪等 DDL のためリネームしない）
+  // op_workers ＝ 旧グループ長マスタ。現在は未使用（入力範囲・承認者はポータルの
+  // ログイン情報だけで決まる）。既存DBとの互換のため定義は残す
   await safeDdl(() => sql`
     CREATE TABLE IF NOT EXISTS op_workers (
       id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),

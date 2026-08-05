@@ -215,21 +215,6 @@ export function gapOf(report: { theoreticalQty: number; actualQty: number }): nu
   return report.theoreticalQty - report.actualQty;
 }
 
-/**
- * グループ長（ラインの残業有無の申請者）。
- * 社員番号がログインID（ポータルの社員番号）と一致すると、入力画面がその担当ラインに絞られる。
- * ※ DB のテーブル名は歴史的経緯で op_workers のまま。
- */
-export interface Worker {
-  id: string;
-  factoryId: string;
-  factoryName: string;
-  /** 担当ライン。未設定なら工場全体のラインに入力できる */
-  lineId: string | null;
-  lineName: string | null;
-  employeeNo: string;
-  name: string;
-}
 
 /** 集計行（工場×職場、または工場のみ）。 */
 export interface SummaryRow {

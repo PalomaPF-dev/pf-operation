@@ -1,17 +1,14 @@
 import Link from "next/link";
-import { Building2, Factory as FactoryIcon, Info, SlidersHorizontal, UserCog, Users } from "lucide-react";
+import { Building2, Factory as FactoryIcon, Info, SlidersHorizontal } from "lucide-react";
 import { masterEditDepartments, requireAdminSession } from "@/lib/session";
-import { listAppUsers, listFactories, listLines, listWorkers, type AppUserRow } from "@/lib/db";
+import { listFactories, listLines } from "@/lib/db";
 import {
   deleteFactoryAction,
   deleteLineAction,
-  deleteWorkerAction,
   importMasterAction,
   saveCapacitiesAction,
-  saveUserApproverAction,
   saveFactoryAction,
   saveLineAction,
-  saveWorkerAction,
 } from "@/lib/actions";
 import { formatBreaks } from "@/lib/capacity";
 import {
@@ -20,7 +17,6 @@ import {
   capacityPerManHour,
   type Factory,
   type Line,
-  type Worker,
 } from "@/lib/types";
 import PageHeader from "@/components/PageHeader";
 import DbErrorState from "@/components/DbErrorState";
@@ -32,8 +28,6 @@ const TABS = [
   { key: "capacity", label: "工場・ラインマスター", icon: FactoryIcon },
   { key: "lines", label: "ライン設定", icon: SlidersHorizontal },
   { key: "factories", label: "工場", icon: Building2 },
-  { key: "workers", label: "グループ長", icon: Users },
-  { key: "users", label: "利用者・上長", icon: UserCog },
 ] as const;
 
 type TabKey = (typeof TABS)[number]["key"];
@@ -63,14 +57,9 @@ export default async function MastersPage({
   // 編集可否はページでもサーバーアクションでも判定する（画面はボタンを出さないだけ）
   const canEdit = session.canEditMaster;
 
-  let factories, lines, workers, users;
+  let factories, lines;
   try {
-    [factories, lines, workers, users] = await Promise.all([
-      listFactories(),
-      listLines(),
-      listWorkers(),
-      listAppUsers(),
-    ]);
+    [factories, lines] = await Promise.all([listFactories(), listLines()]);
   } catch (e) {
     console.error("[masters]", e);
     return (
@@ -121,10 +110,6 @@ export default async function MastersPage({
       ) : null}
       {tab === "lines" ? <LinesTab factories={factories} lines={lines} canEdit={canEdit} /> : null}
       {tab === "factories" ? <FactoriesTab factories={factories} canEdit={canEdit} /> : null}
-      {tab === "workers" ? (
-        <WorkersTab factories={factories} lines={lines} workers={workers} canEdit={canEdit} />
-      ) : null}
-      {tab === "users" ? <UsersTab users={users} canEdit={canEdit} /> : null}
     </div>
   );
 }
@@ -658,243 +643,6 @@ function FactoriesTab({ factories, canEdit }: { factories: Factory[]; canEdit: b
           ))}
         </ul>
       )}
-    </div>
-  );
-}
-
-/* ===== グループ長（ラインの残業有無の申請者） ===== */
-
-function WorkerFields({
-  factories,
-  lines,
-  worker,
-  canEdit,
-}: {
-  factories: Factory[];
-  lines: Line[];
-  worker?: Worker;
-  canEdit: boolean;
-}) {
-  const disabled = !canEdit;
-  return (
-    <>
-      <Field label="工場">
-        <select
-          name="factoryId"
-          defaultValue={worker?.factoryId ?? factories[0]?.id ?? ""}
-          required
-          disabled={disabled}
-          className={`${inputCls} w-36`}
-        >
-          {factories.map((f) => (
-            <option key={f.id} value={f.id}>
-              {f.name}
-            </option>
-          ))}
-        </select>
-      </Field>
-      <Field label="担当ライン（未設定なら工場全体）">
-        <select
-          name="lineId"
-          defaultValue={worker?.lineId ?? ""}
-          disabled={disabled}
-          className={`${inputCls} w-48`}
-        >
-          <option value="">未設定</option>
-          {lines.map((l) => (
-            <option key={l.id} value={l.id}>
-              {l.factoryName} / {l.name}
-            </option>
-          ))}
-        </select>
-      </Field>
-      <Field label="社員番号">
-        <input
-          type="text"
-          name="employeeNo"
-          defaultValue={worker?.employeeNo ?? ""}
-          required
-          maxLength={32}
-          disabled={disabled}
-          className={`${inputCls} w-32`}
-        />
-      </Field>
-      <Field label="氏名">
-        <input
-          type="text"
-          name="name"
-          defaultValue={worker?.name ?? ""}
-          required
-          maxLength={60}
-          disabled={disabled}
-          className={`${inputCls} w-40`}
-        />
-      </Field>
-    </>
-  );
-}
-
-function WorkersTab({
-  factories,
-  lines,
-  workers,
-  canEdit,
-}: {
-  factories: Factory[];
-  lines: Line[];
-  workers: Worker[];
-  canEdit: boolean;
-}) {
-  if (factories.length === 0) {
-    return (
-      <p className="text-sm text-slate-500">
-        先に
-        <Link href="/masters?tab=factories" className="mx-1 text-brand-700 underline">
-          工場
-        </Link>
-        を登録してください。
-      </p>
-    );
-  }
-  return (
-    <div className="space-y-4">
-      {canEdit ? (
-        <section className="rounded-xl border border-slate-200 bg-white p-4">
-          <h2 className="mb-3 text-sm font-semibold text-slate-900">グループ長を追加</h2>
-          <form action={saveWorkerAction} className="flex flex-wrap items-end gap-3">
-            <WorkerFields factories={factories} lines={lines} canEdit />
-            <SubmitButton>追加</SubmitButton>
-          </form>
-          <p className="mt-2 text-xs text-slate-500">
-            グループ長は、担当ラインの残業有無を申請する人です。社員番号がポータルのログインIDと
-            一致すると、進捗・残業の入力画面がその担当ラインだけに絞られます。
-          </p>
-        </section>
-      ) : null}
-
-      {workers.length === 0 ? (
-        <p className="text-sm text-slate-500">グループ長がまだ登録されていません。</p>
-      ) : (
-        <ul className="space-y-2">
-          {workers.map((w) => (
-            <li key={w.id} className="rounded-xl border border-slate-200 bg-white p-3">
-              <form action={saveWorkerAction} className="flex flex-wrap items-end gap-3">
-                <input type="hidden" name="id" value={w.id} />
-                <WorkerFields factories={factories} lines={lines} worker={w} canEdit={canEdit} />
-                {canEdit ? <SubmitButton>更新</SubmitButton> : null}
-              </form>
-              {canEdit ? (
-                <form action={deleteWorkerAction} className="mt-2">
-                  <input type="hidden" name="id" value={w.id} />
-                  <SubmitButton
-                    pendingLabel="削除中…"
-                    confirm={`グループ長「${w.name}」を削除します。よろしいですか？`}
-                    className={deleteCls}
-                  >
-                    削除
-                  </SubmitButton>
-                </form>
-              ) : null}
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-/* ===== 利用者（上長の設定） ===== */
-
-/**
- * ログインしたことのある利用者と、その上長（残業申請の承認者）。
- * 「実施」の申請は上長に回り、承認後に生産管理部へ届く。上長未設定の申請は生産管理部が承認する。
- */
-function UsersTab({ users, canEdit }: { users: AppUserRow[]; canEdit: boolean }) {
-  // 承認者に選べるのは管理者のみ（このアプリを使えるのは管理者だけのため）
-  const approverOptions = users.filter((u) => u.role === "admin");
-  if (users.length === 0) {
-    return (
-      <p className="text-sm text-slate-500">
-        利用者がまだいません。ポータルからログインすると、ここに表示されます。
-      </p>
-    );
-  }
-  return (
-    <div className="space-y-3">
-      <p className="text-xs text-slate-600">
-        残業「実施」の申請は<strong className="font-medium">上長（承認者）</strong>
-        が承認し、承認済みが生産管理部へ届きます（未設定の場合は生産管理部が承認）。
-        上長は<strong className="font-medium">ポータルの承認者（上司）設定</strong>
-        から本人のログイン時に自動で反映されます。ここでの手動設定は、ポータル側が未設定の間の
-        つなぎです（次回ログイン時にポータルの設定で上書きされます）。
-        「翌日回し」は設定によらず生産管理部の許可になります。
-        入力できるラインはグループ長マスタの登録（社員番号の一致）で決まります。
-      </p>
-      <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
-        <table className="w-full min-w-[44rem] border-collapse text-sm">
-          <thead className="bg-slate-50 text-xs text-slate-600">
-            <tr className="border-b border-slate-200">
-              <th className="px-3 py-2 text-left">社員番号</th>
-              <th className="px-3 py-2 text-left">氏名</th>
-              <th className="px-3 py-2 text-left">所属</th>
-              <th className="px-3 py-2 text-left">上長（承認者）</th>
-              {canEdit ? <th className="px-3 py-2" /> : null}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {users.map((u) => (
-              <tr key={u.id} className={u.role !== "admin" ? "text-slate-400" : ""}>
-                <td className="px-3 py-2 tabular-nums">{u.loginId}</td>
-                <td className="px-3 py-2 font-medium text-slate-900">
-                  {u.name}
-                  {u.role !== "admin" ? (
-                    <span className="ml-1.5 text-[10px] font-normal text-slate-400">
-                      一般（ログイン不可）
-                    </span>
-                  ) : null}
-                  {u.portalAdmin ? (
-                    <span className="ml-1.5 rounded bg-brand-100 px-1.5 py-0.5 text-[10px] font-normal text-brand-800">
-                      ポータル管理
-                    </span>
-                  ) : null}
-                </td>
-                <td className="px-3 py-2 text-xs text-slate-500">
-                  {[u.factory, u.department].filter(Boolean).join(" / ") || "—"}
-                </td>
-                {canEdit ? (
-                  <td className="px-3 py-2" colSpan={2}>
-                    <form action={saveUserApproverAction} className="flex items-center gap-2">
-                      <input type="hidden" name="id" value={u.id} />
-                      <select
-                        name="approverId"
-                        defaultValue={u.approverId ?? ""}
-                        className={`${inputCls} w-56`}
-                      >
-                        <option value="">未設定（生産管理部が承認）</option>
-                        {approverOptions
-                          .filter((a) => a.id !== u.id)
-                          .map((a) => (
-                            <option key={a.id} value={a.id}>
-                              {a.name}（{a.loginId}）
-                            </option>
-                          ))}
-                      </select>
-                      <SubmitButton
-                        pendingLabel="保存中…"
-                        className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
-                      >
-                        保存
-                      </SubmitButton>
-                    </form>
-                  </td>
-                ) : (
-                  <td className="px-3 py-2">{u.approverName ?? "未設定（生産管理部が承認）"}</td>
-                )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
     </div>
   );
 }
