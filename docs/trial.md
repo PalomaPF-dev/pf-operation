@@ -15,7 +15,7 @@ Vercel で `PalomaPF-dev/pf-operation` をインポートし、環境変数を�
 
 | 変数 | 値 |
 | --- | --- |
-| `DATABASE_URL` | 1で控えた Neon の接続文字列 |
+| `DATABASE_URL` | 1で控えた Neon の接続文字列。**`postgresql://` から始まる1行だけ**を入れる（`DATABASE_URL=` や後ろのコマンドは含めない） |
 | `NEXTAUTH_SECRET` | `openssl rand -base64 32` の出力 |
 | `NEXTAUTH_URL` | デプロイ先の URL（例 `https://pf-operation.vercel.app`） |
 | `PF_PROVISION_KEY` | 任意の長い文字列。**本運用ではポータルと同じ値**にするが、トライアル中は仮の値でよい |
@@ -48,10 +48,11 @@ PF_PROVISION_KEY='2で設定した値' node scripts/make-sso-link.mjs \
 **3のログインを済ませてから**実行すること（テーブルが作られていないと止まる）。
 
 ```bash
-DATABASE_URL='1の接続文字列' node scripts/seed.mjs
+export DATABASE_URL='1の接続文字列'   # postgresql://… で始まる1行
+node scripts/seed.mjs
 
 # 残業申請まで試すなら、サンプル作業者も入れる（本番前に削除すること）
-DATABASE_URL='1の接続文字列' node scripts/seed.mjs --with-sample-workers
+node scripts/seed.mjs --with-sample-workers
 ```
 
 入るもの：清洲工場 ／ ライン #1〜#G（ライン実力・稼働時間・始業08:00・休憩

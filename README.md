@@ -85,12 +85,18 @@
 
 ```bash
 # ポータル登録前のログインリンクを発行する（60秒有効）
-PF_PROVISION_KEY=xxxx node scripts/make-sso-link.mjs \
-  --url https://pf-operation.vercel.app --login-id 12345 --name "山田 太郎"
+export PF_PROVISION_KEY='xxxx'
+node scripts/make-sso-link.mjs \
+  --url https://operation.paloma-pf.com --login-id 12345 --name "山田 太郎"
 
 # 画面サンプルの清洲工場のライン実力を投入する（冪等）
-DATABASE_URL=postgres://... node scripts/seed.mjs --with-sample-workers
+export DATABASE_URL='postgresql://ユーザー:パスワード@ホスト/DB名?sslmode=require'
+node scripts/seed.mjs --with-sample-workers
 ```
+
+> 上は**手元のシェルで実行するコマンド**。Vercel の環境変数に入れるときは、
+> `postgresql://` から始まる**接続文字列だけ**を値にする（`DATABASE_URL=` や後ろの
+> コマンドは含めない）。
 
 ## 開発
 

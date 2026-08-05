@@ -76,13 +76,21 @@ export async function GET(req: Request) {
   if (!claims) return fail("sso");
 
   try {
-    // 役割が変わっていてもポータルを正として毎回反映する
-    const { user } = await upsertPortalUser({
-      loginId: claims.loginId,
-      name: claims.name,
-      role: claims.role,
-      factory: claims.factory,
-    });
+    // 役割が変わっていてもポータルを正として毎回反映する。
+    // ここは DB を触る最初の処理なので、DATABASE_URL の設定ミスはここで表面化する。
+    // 原因が画面から分かるよう、DB の失敗だけは専用のエラーコードで返す。
+    let user;
+    try {
+      ({ user } = await upsertPortalUser({
+        loginId: claims.loginId,
+        name: claims.name,
+        role: claims.role,
+        factory: claims.factory,
+      }));
+    } catch (e) {
+      console.error("[sso] database:", e);
+      return fail("db");
+    }
 
     // 管理者専用。一般ユーザーはセッションを発行しない
     if (user.role !== "admin") return fail("forbidden");
