@@ -296,13 +296,15 @@ export interface UserScope {
 /**
  * ログインした人の入力範囲を出す。優先順位：
  * 1. グループ長マスタに登録があれば、その担当ライン（ライン未設定の行は工場全体）。
- * 2. なければ、ポータル連携の所属工場名がマスタの工場名と一致すれば、その工場に固定。
+ * 2. なければ、ポータル連携の所属（工場名・部署名）がマスタの工場名と一致すれば、その工場に固定。
+ *    ポータルでは「大口工場」のような工場が部署として登録されているため、部署名も突き合わせる。
  * 3. どちらも無ければ null（全工場に入力できる）。
  * 生産管理部・ポータル管理者（canEditMaster）は 2 を適用しない（全工場を横断して入力できる）。
  */
 export async function getUserScope(user: {
   loginId: string;
   factory: string | null;
+  department: string | null;
   canEditMaster: boolean;
 }): Promise<UserScope | null> {
   await ensureSchema();
@@ -319,10 +321,16 @@ export async function getUserScope(user: {
     }
     return { lineIds, factoryIds };
   }
-  // 所属工場での絞り込み（グループ長登録が無い工場の管理者向け）
-  if (!user.canEditMaster && user.factory) {
-    const f = await sql`SELECT id FROM op_factories WHERE name = ${user.factory} LIMIT 1`;
-    if (f[0]) return { lineIds: [], factoryIds: [f[0].id as string] };
+  // 所属での絞り込み（グループ長登録が無い工場の管理者向け）。
+  // 工場名・部署名のどちらかがマスタの工場名と一致すれば、その工場だけにする
+  if (!user.canEditMaster) {
+    const names = [user.factory, user.department].filter((v): v is string => !!v);
+    if (names.length > 0) {
+      const f = await sql`SELECT id FROM op_factories WHERE name = ANY(${names}::text[])`;
+      if (f.length > 0) {
+        return { lineIds: [], factoryIds: (f as any[]).map((r) => r.id as string) };
+      }
+    }
   }
   return null;
 }
