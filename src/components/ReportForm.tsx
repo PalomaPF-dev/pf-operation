@@ -116,17 +116,6 @@ export default function ReportForm({
   const otMins = Math.max(0, Math.round(Number(otMinutes)) || 0);
   const totalMinutes = otHeads * otMins;
 
-  // 残業中の時間当たり出来高。残業できる人員が在籍数より少なければ、人数比で落ちるとみなす
-  const baseRate = line ? hourlyRate({ ...line, startTime }) : 0;
-  const otRatio = line && line.headcount > 0 && otHeads > 0 ? otHeads / line.headcount : 1;
-  const otRate = baseRate * otRatio;
-  /** この申請内容（人数×時間）で見込める出来高 */
-  const otExpectedQty = Math.round((otRate * otMins) / 60);
-  const shortage = Math.max(gap, shortfallVsPlan);
-  /** 不足分を取り戻すのに必要な一人当たり時間（この人数のとき）。5分単位に切り上げ */
-  const neededMinutes =
-    otRate > 0 && shortage > 0 ? Math.ceil(((shortage / otRate) * 60) / 5) * 5 : null;
-
   /** 日付・工場・ラインを変えたら、その組み合わせのデータを読み直す。 */
   const navigate = (next: { date?: string; factoryId?: string; lineId?: string }) => {
     const d = next.date ?? date;
@@ -450,36 +439,6 @@ export default function ReportForm({
                 （{otHeads}名 × {otMins}分）
               </p>
             </div>
-            {otRate > 0 ? (
-              <p className="mt-2 text-xs text-slate-600">
-                この内容での見込み出来高：
-                <strong className="tabular-nums text-slate-900">
-                  約{otExpectedQty}
-                  {qty.unit}
-                </strong>
-                <span className="ml-1 text-slate-500">
-                  （時間当たり {baseRate.toFixed(1)}
-                  {qty.unit}/h × 人数比 {otHeads}/{line?.headcount ?? 0} × {otMins}分）
-                </span>
-                {shortage > 0 ? (
-                  otExpectedQty >= shortage ? (
-                    <span className="ml-2 text-emerald-700">
-                      不足 {shortage}
-                      {qty.unit} を取り戻せる見込みです
-                    </span>
-                  ) : (
-                    <span className="ml-2 text-rose-600">
-                      不足 {shortage}
-                      {qty.unit} には足りません（この人数なら 約{neededMinutes}分/人 必要）
-                    </span>
-                  )
-                ) : null}
-              </p>
-            ) : null}
-            <p className="mt-1 text-xs text-slate-500">
-              人数はラインの在籍数（投入人数）を初期値にしています。実際に残業できる人数に直すと、
-              見込み出来高も人数比で計算し直します。
-            </p>
           </div>
         ) : null}
 
