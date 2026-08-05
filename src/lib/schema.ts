@@ -58,18 +58,25 @@ async function buildSchema(): Promise<void> {
       role          text NOT NULL DEFAULT 'member',
       -- ポータルから連携された所属工場名（表示の初期値に使う）
       factory       text,
+      -- ポータルの所属部署名。マスタを編集できる部署かどうかの判定に使う
+      department    text,
       created_at    timestamptz NOT NULL DEFAULT now(),
       updated_at    timestamptz NOT NULL DEFAULT now()
     )`);
+  // 既存DBにも列を足す（後から追加した列は ALTER で冪等に）
+  await safeDdl(() => sql`ALTER TABLE op_users ADD COLUMN IF NOT EXISTS department text`);
 
   // ===== マスタ =====
   await safeDdl(() => sql`
     CREATE TABLE IF NOT EXISTS op_factories (
       id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
       name       text NOT NULL UNIQUE,
+      -- 社内の工場コード（02＝大口、0E＝清洲 など）
+      code       text,
       sort_order integer NOT NULL DEFAULT 0,
       created_at timestamptz NOT NULL DEFAULT now()
     )`);
+  await safeDdl(() => sql`ALTER TABLE op_factories ADD COLUMN IF NOT EXISTS code text`);
 
   await safeDdl(() => sql`
     CREATE TABLE IF NOT EXISTS op_lines (
@@ -77,6 +84,8 @@ async function buildSchema(): Promise<void> {
       factory_id      uuid NOT NULL REFERENCES op_factories(id) ON DELETE CASCADE,
       -- ライン名（#1, #B など）
       name            text NOT NULL,
+      -- 器種（そのラインで作るもの。例「片面ホーロー」）
+      product         text,
       -- 'assembly'（組立ライン）| 'process'（前工程）
       line_type       text NOT NULL DEFAULT 'assembly',
       -- ライン実力（台/日・件/日）と、その実力を出せる稼働時間（H）
@@ -92,6 +101,7 @@ async function buildSchema(): Promise<void> {
       created_at       timestamptz NOT NULL DEFAULT now(),
       UNIQUE (factory_id, name)
     )`);
+  await safeDdl(() => sql`ALTER TABLE op_lines ADD COLUMN IF NOT EXISTS product text`);
 
   await safeDdl(() => sql`
     CREATE TABLE IF NOT EXISTS op_line_breaks (

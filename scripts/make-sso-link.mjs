@@ -7,10 +7,11 @@
  *
  *   PF_PROVISION_KEY=xxxx node scripts/make-sso-link.mjs \
  *     --url https://operation.paloma-pf.com \
- *     --login-id 12345 --name "山田 太郎"
+ *     --login-id 12345 --name "山田 太郎" --department 生産管理部
  *
  * 出力された URL を60秒以内にブラウザで開くとログインできる。
  * role は既定で admin（このアプリは管理者しか入れないため）。
+ * マスタを編集したいときは --department に MASTER_EDIT_DEPARTMENTS（既定「生産管理部」）を渡す。
  * ※ ポータル登録後は、このスクリプトは不要。
  */
 import { createHmac } from "node:crypto";
@@ -32,6 +33,8 @@ const loginId = arg("login-id");
 const name = arg("name") ?? loginId;
 const role = arg("role") ?? "admin";
 const factory = arg("factory");
+// 所属部署。マスタを編集するには MASTER_EDIT_DEPARTMENTS（既定「生産管理部」）と一致させる
+const department = arg("department");
 
 if (!loginId) {
   console.error('--login-id を指定してください（例: --login-id 12345 --name "山田 太郎"）。');
@@ -45,6 +48,7 @@ const payload = Buffer.from(
     name,
     role,
     ...(factory ? { factory } : {}),
+    ...(department ? { department } : {}),
     app: "operation",
     exp: Date.now() + 60_000,
   })

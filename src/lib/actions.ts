@@ -2,13 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { requireAdminSession } from "./session";
-import {
-  clearUnlockCookie,
-  requireMasterUnlocked,
-  setUnlockCookie,
-  verifyPin,
-} from "./masterPin";
+import { requireAdminSession, requireMasterEditor } from "./session";
 import {
   createFactory,
   createLine,
@@ -21,7 +15,7 @@ import {
   saveReport,
   updateFactory,
   updateLine,
-  updateLineCapacity,
+  updateLineRow,
   updateWorker,
   upsertPlan,
 } from "./db";
@@ -180,39 +174,23 @@ export async function deleteReportAction(fd: FormData): Promise<void> {
   revalidatePath("/summary");
 }
 
-/* ===== マスタ：PIN ロック ===== */
-
-export async function unlockMasterAction(fd: FormData): Promise<void> {
-  await requireAdminSession();
-  const pin = str(fd, "pin");
-  if (!verifyPin(pin)) throw new Error("PINが違います");
-  await setUnlockCookie();
-  revalidatePath("/masters");
-}
-
-export async function lockMasterAction(): Promise<void> {
-  await requireAdminSession();
-  await clearUnlockCookie();
-  revalidatePath("/masters");
-}
-
-/* ===== マスタ：工場 ===== */
+/* ===== マスタ：工場 =====
+   マスタの編集系はすべて requireMasterEditor（管理者かつ生産管理部）を通す。 */
 
 export async function saveFactoryAction(fd: FormData): Promise<void> {
-  await requireAdminSession();
-  await requireMasterUnlocked();
+  await requireMasterEditor();
   const id = optStr(fd, "id");
   const name = str(fd, "name");
   if (!name) throw new Error("工場名を入力してください");
+  const code = optStr(fd, "code");
   const sortOrder = int(fd, "sortOrder");
-  if (id) await updateFactory(id, name, sortOrder);
-  else await createFactory(name, sortOrder);
+  if (id) await updateFactory(id, name, code, sortOrder);
+  else await createFactory(name, code, sortOrder);
   revalidatePath("/masters");
 }
 
 export async function deleteFactoryAction(fd: FormData): Promise<void> {
-  await requireAdminSession();
-  await requireMasterUnlocked();
+  await requireMasterEditor();
   const id = str(fd, "id");
   if (!id) return;
   await deleteFactory(id);
@@ -229,6 +207,7 @@ function readLineInput(fd: FormData) {
   return {
     factoryId,
     name,
+    product: optStr(fd, "product"),
     lineType: isLineType(lineTypeRaw) ? lineTypeRaw : ("assembly" as const),
     capacityPerDay: Math.max(0, dec(fd, "capacityPerDay")),
     workHours: Math.max(0, dec(fd, "workHours", 8)),
@@ -242,8 +221,7 @@ function readLineInput(fd: FormData) {
 }
 
 export async function saveLineAction(fd: FormData): Promise<void> {
-  await requireAdminSession();
-  await requireMasterUnlocked();
+  await requireMasterEditor();
   const id = optStr(fd, "id");
   const input = readLineInput(fd);
   if (id) await updateLine(id, input);
@@ -253,30 +231,27 @@ export async function saveLineAction(fd: FormData): Promise<void> {
 }
 
 /**
- * ライン実力・稼働時間・備考だけをまとめて直す（マスタ一覧の表からの更新）。
+ * 器種・現状人員・生産能力・総稼働時間・備考をまとめて直す（工場・ラインマスターの表からの更新）。
  * 1つの工場ぶんを1回の送信で保存する。
  */
 export async function saveCapacitiesAction(fd: FormData): Promise<void> {
-  await requireAdminSession();
-  await requireMasterUnlocked();
+  await requireMasterEditor();
   const ids = fd.getAll("lineId").filter((v): v is string => typeof v === "string");
   for (const id of ids) {
-    const capacityRaw = str(fd, `capacity_${id}`);
-    const hoursRaw = str(fd, `hours_${id}`);
-    await updateLineCapacity(
-      id,
-      capacityRaw === "" ? 0 : Math.max(0, dec(fd, `capacity_${id}`)),
-      hoursRaw === "" ? 0 : Math.max(0, dec(fd, `hours_${id}`)),
-      optStr(fd, `note_${id}`)
-    );
+    await updateLineRow(id, {
+      product: optStr(fd, `product_${id}`),
+      headcount: Math.max(0, dec(fd, `headcount_${id}`)),
+      capacityPerDay: Math.max(0, dec(fd, `capacity_${id}`)),
+      workHours: Math.max(0, dec(fd, `hours_${id}`)),
+      note: optStr(fd, `note_${id}`),
+    });
   }
   revalidatePath("/masters");
   revalidatePath("/report");
 }
 
 export async function deleteLineAction(fd: FormData): Promise<void> {
-  await requireAdminSession();
-  await requireMasterUnlocked();
+  await requireMasterEditor();
   const id = str(fd, "id");
   if (!id) return;
   await deleteLine(id);
@@ -287,8 +262,7 @@ export async function deleteLineAction(fd: FormData): Promise<void> {
 /* ===== マスタ：作業者 ===== */
 
 export async function saveWorkerAction(fd: FormData): Promise<void> {
-  await requireAdminSession();
-  await requireMasterUnlocked();
+  await requireMasterEditor();
   const id = optStr(fd, "id");
   const factoryId = str(fd, "factoryId");
   const employeeNo = str(fd, "employeeNo");
@@ -310,8 +284,7 @@ export async function saveWorkerAction(fd: FormData): Promise<void> {
 }
 
 export async function deleteWorkerAction(fd: FormData): Promise<void> {
-  await requireAdminSession();
-  await requireMasterUnlocked();
+  await requireMasterEditor();
   const id = str(fd, "id");
   if (!id) return;
   await deleteWorker(id);

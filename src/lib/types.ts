@@ -88,6 +88,8 @@ export function isReasonCode(v: unknown): v is ReasonCode {
 export interface Factory {
   id: string;
   name: string;
+  /** 社内の工場コード（02＝大口、0E＝清洲 など）。未設定なら null */
+  code: string | null;
   sortOrder: number;
 }
 
@@ -103,6 +105,8 @@ export interface Line {
   factoryName: string;
   /** ライン名（#1, #B など） */
   name: string;
+  /** 器種（そのラインで作るもの。例「片面ホーロー」） */
+  product: string | null;
   lineType: LineType;
   /** ライン実力（台/日・件/日） */
   capacityPerDay: number;
@@ -167,6 +171,21 @@ export interface Report {
   members: OvertimeMember[];
   /** 残業時間の合計（分） */
   overtimeMinutes: number;
+}
+
+/**
+ * マスタ上の「一人当たり時間出来高」（台/人・H）。
+ * ライン実力 ÷（現状人員 × 総稼働時間）。人員か稼働時間が 0 なら null。
+ * ※ 集計ページの「一人当たり出来高」は実績ベース。こちらは計画（実力）ベースの目安。
+ */
+export function capacityPerManHour(line: {
+  capacityPerDay: number;
+  headcount: number;
+  workHours: number;
+}): number | null {
+  const manHours = line.headcount * line.workHours;
+  if (manHours <= 0) return null;
+  return line.capacityPerDay / manHours;
 }
 
 /** 理論値に対する差異（理論 − 実績）。プラスなら不足。 */
