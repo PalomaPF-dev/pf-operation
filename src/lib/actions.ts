@@ -12,6 +12,7 @@ import {
   deleteReport,
   deleteWorker,
   getLine,
+  importFactoryLines,
   saveReport,
   updateFactory,
   updateLine,
@@ -248,6 +249,18 @@ export async function saveCapacitiesAction(fd: FormData): Promise<void> {
   }
   revalidatePath("/masters");
   revalidatePath("/report");
+}
+
+/**
+ * 受領した「工場・ラインマスター」（4工場33ライン）を取り込む（冪等）。
+ * 手で直した器種・人員も受領値に戻るため、画面側で確認を挟んでいる。
+ */
+export async function importMasterAction(): Promise<void> {
+  await requireMasterEditor();
+  await importFactoryLines();
+  revalidatePath("/masters");
+  revalidatePath("/report");
+  revalidatePath("/");
 }
 
 export async function deleteLineAction(fd: FormData): Promise<void> {

@@ -1,0 +1,307 @@
+{
+  "startTime": "08:00",
+  "breaks": [
+    [
+      "10:00",
+      "10:10"
+    ],
+    [
+      "12:10",
+      "12:50"
+    ],
+    [
+      "14:50",
+      "15:00"
+    ]
+  ],
+  "factories": [
+    {
+      "code": "02",
+      "name": "大口工場",
+      "lines": [
+        {
+          "name": "#2",
+          "product": "ブライツ",
+          "headcount": 35,
+          "capacityPerDay": 540,
+          "workHours": 8,
+          "note": null
+        },
+        {
+          "name": "#3",
+          "product": "ブライツ",
+          "headcount": 34,
+          "capacityPerDay": 540,
+          "workHours": 8,
+          "note": null
+        },
+        {
+          "name": "#5",
+          "product": "全一次",
+          "headcount": 7,
+          "capacityPerDay": 80,
+          "workHours": 8,
+          "note": null
+        },
+        {
+          "name": "#6",
+          "product": "PH潜熱",
+          "headcount": 9,
+          "capacityPerDay": 100,
+          "workHours": 8,
+          "note": null
+        },
+        {
+          "name": "#7",
+          "product": "据置(ブライツ)",
+          "headcount": 8,
+          "capacityPerDay": 80,
+          "workHours": 8,
+          "note": null
+        },
+        {
+          "name": "#A",
+          "product": "スリム",
+          "headcount": 6,
+          "capacityPerDay": 50,
+          "workHours": 8,
+          "note": null
+        },
+        {
+          "name": "#B",
+          "product": "FE/FF",
+          "headcount": 9,
+          "capacityPerDay": 145,
+          "workHours": 8,
+          "note": null
+        },
+        {
+          "name": "#C",
+          "product": "Tino",
+          "headcount": 1,
+          "capacityPerDay": 10,
+          "workHours": 8,
+          "note": null
+        },
+        {
+          "name": "#D",
+          "product": "DH",
+          "headcount": 1,
+          "capacityPerDay": 3,
+          "workHours": 8,
+          "note": "※機種変更"
+        }
+      ]
+    },
+    {
+      "code": "0E",
+      "name": "清洲工場",
+      "lines": [
+        {
+          "name": "#1",
+          "product": "片面ホーロー",
+          "headcount": 18,
+          "capacityPerDay": 412,
+          "workHours": 8,
+          "note": null
+        },
+        {
+          "name": "#2",
+          "product": "片面ホーロー",
+          "headcount": 13,
+          "capacityPerDay": 285,
+          "workHours": 8,
+          "note": "※計画は348台/日　ライン準備できてない残業もできるときのみしかやってない"
+        },
+        {
+          "name": "#3",
+          "product": "ブリリオ/リプラ/両面ホーロー",
+          "headcount": 15,
+          "capacityPerDay": 270,
+          "workHours": 8,
+          "note": null
+        },
+        {
+          "name": "#4",
+          "product": "ブリリオ/リプラ/両面ホーロー",
+          "headcount": 18,
+          "capacityPerDay": 380,
+          "workHours": 8,
+          "note": null
+        },
+        {
+          "name": "#8",
+          "product": "別梱トッププレート",
+          "headcount": 0,
+          "capacityPerDay": 0,
+          "workHours": 0,
+          "note": null
+        },
+        {
+          "name": "#5",
+          "product": "フェイシス/ウィズナ",
+          "headcount": 19,
+          "capacityPerDay": 328,
+          "workHours": 8,
+          "note": null
+        },
+        {
+          "name": "#B",
+          "product": "59cmハイグレード",
+          "headcount": 11,
+          "capacityPerDay": 280,
+          "workHours": 8,
+          "note": null
+        },
+        {
+          "name": "#C",
+          "product": "二口G無し",
+          "headcount": 7,
+          "capacityPerDay": 280,
+          "workHours": 8,
+          "note": null
+        },
+        {
+          "name": "#D",
+          "product": "二口G有し",
+          "headcount": 6,
+          "capacityPerDay": 120,
+          "workHours": 8,
+          "note": null
+        },
+        {
+          "name": "#E",
+          "product": "一口/縦二口",
+          "headcount": 5,
+          "capacityPerDay": 120,
+          "workHours": 6,
+          "note": "※＃Gと＃Eは同一人員にて生産"
+        },
+        {
+          "name": "#F",
+          "product": "オーブン",
+          "headcount": 6,
+          "capacityPerDay": 25,
+          "workHours": 8,
+          "note": null
+        },
+        {
+          "name": "#G",
+          "product": "クレア",
+          "headcount": 5,
+          "capacityPerDay": 12,
+          "workHours": 2,
+          "note": "※＃Gと＃Eは同一人員にて生産"
+        }
+      ]
+    },
+    {
+      "code": "05",
+      "name": "直方工場",
+      "lines": [
+        {
+          "name": "#1",
+          "product": "小型",
+          "headcount": 14,
+          "capacityPerDay": 540,
+          "workHours": 8,
+          "note": null
+        },
+        {
+          "name": "#2",
+          "product": "AW",
+          "headcount": 20,
+          "capacityPerDay": 400,
+          "workHours": 8,
+          "note": null
+        },
+        {
+          "name": "#3",
+          "product": "AW",
+          "headcount": 13,
+          "capacityPerDay": 330,
+          "workHours": 8,
+          "note": null
+        },
+        {
+          "name": "#5",
+          "product": "4桁",
+          "headcount": 28,
+          "capacityPerDay": 450,
+          "workHours": 8,
+          "note": null
+        },
+        {
+          "name": "#4",
+          "product": "輸出28号",
+          "headcount": 5,
+          "capacityPerDay": 50,
+          "workHours": 8,
+          "note": null
+        },
+        {
+          "name": "#6",
+          "product": "輸出28号",
+          "headcount": 31,
+          "capacityPerDay": 475,
+          "workHours": 8,
+          "note": null
+        },
+        {
+          "name": "#7",
+          "product": "32号(輸出32号)",
+          "headcount": 14,
+          "capacityPerDay": 200,
+          "workHours": 8,
+          "note": null
+        }
+      ]
+    },
+    {
+      "code": "0T",
+      "name": "恵那工場",
+      "lines": [
+        {
+          "name": "#2",
+          "product": "56cm",
+          "headcount": 14,
+          "capacityPerDay": 680,
+          "workHours": 8,
+          "note": null
+        },
+        {
+          "name": "#4",
+          "product": "59cm",
+          "headcount": 17,
+          "capacityPerDay": 670,
+          "workHours": 8,
+          "note": null
+        },
+        {
+          "name": "#5",
+          "product": "59cm",
+          "headcount": 14,
+          "capacityPerDay": 560,
+          "workHours": 8,
+          "note": null
+        },
+        {
+          "name": "#6",
+          "product": "二口",
+          "headcount": 6,
+          "capacityPerDay": 120,
+          "workHours": 3,
+          "note": "※＃6と＃7は同一人員にて生産"
+        },
+        {
+          "name": "#7",
+          "product": "一口",
+          "headcount": 6,
+          "capacityPerDay": 150,
+          "workHours": 3,
+          "note": "※＃6と＃7は同一人員にて生産"
+        }
+      ]
+    }
+  ]
+}

@@ -21,83 +21,19 @@ if (!url) {
 const sql = neon(url);
 
 /**
- * 工場コード・工場名と、その配下のライン。
- * headcount は現状人員、capacity は生産能力（台/日）、hours は総稼働時間（H）。
+ * 取り込むデータは画面の「受領マスタを取り込む」と同じ src/data/factoryLines.json。
+ * headcount は現状人員、capacityPerDay は生産能力（台/日）、workHours は総稼働時間（H）。
  * 実力が未記入のライン（清洲 #8）は 0 のまま登録し、画面で埋めてもらう。
  */
-const FACTORIES = [
-  {
-    code: "02",
-    name: "大口工場",
-    lines: [
-      { name: "#2", product: "ブライツ", headcount: 35, capacity: 540, hours: 8 },
-      { name: "#3", product: "ブライツ", headcount: 34, capacity: 540, hours: 8 },
-      { name: "#5", product: "全一次", headcount: 7, capacity: 80, hours: 8 },
-      { name: "#6", product: "PH潜熱", headcount: 9, capacity: 100, hours: 8 },
-      { name: "#7", product: "据置(ブライツ)", headcount: 8, capacity: 80, hours: 8 },
-      { name: "#A", product: "スリム", headcount: 6, capacity: 50, hours: 8 },
-      { name: "#B", product: "FE/FF", headcount: 9, capacity: 145, hours: 8 },
-      { name: "#C", product: "Tino", headcount: 1, capacity: 10, hours: 8 },
-      { name: "#D", product: "DH", headcount: 1, capacity: 3, hours: 8,
-        note: "※機種変更" },
-    ],
-  },
-  {
-    code: "0E",
-    name: "清洲工場",
-    lines: [
-      { name: "#1", product: "片面ホーロー", headcount: 18, capacity: 412, hours: 8 },
-      { name: "#2", product: "片面ホーロー", headcount: 13, capacity: 285, hours: 8,
-        note: "※計画は348台/日　ライン準備できてない残業もできるときのみしかやってない" },
-      { name: "#3", product: "ブリリオ/リプラ/両面ホーロー", headcount: 15, capacity: 270, hours: 8 },
-      { name: "#4", product: "ブリリオ/リプラ/両面ホーロー", headcount: 18, capacity: 380, hours: 8 },
-      { name: "#8", product: "別梱トッププレート", headcount: 0, capacity: 0, hours: 0 },
-      { name: "#5", product: "フェイシス/ウィズナ", headcount: 19, capacity: 328, hours: 8 },
-      { name: "#B", product: "59cmハイグレード", headcount: 11, capacity: 280, hours: 8 },
-      { name: "#C", product: "二口G無し", headcount: 7, capacity: 280, hours: 8 },
-      { name: "#D", product: "二口G有し", headcount: 6, capacity: 120, hours: 8 },
-      { name: "#E", product: "一口/縦二口", headcount: 5, capacity: 120, hours: 6,
-        note: "※＃Gと＃Eは同一人員にて生産" },
-      { name: "#F", product: "オーブン", headcount: 6, capacity: 25, hours: 8 },
-      { name: "#G", product: "クレア", headcount: 5, capacity: 12, hours: 2,
-        note: "※＃Gと＃Eは同一人員にて生産" },
-    ],
-  },
-  {
-    code: "05",
-    name: "直方工場",
-    lines: [
-      { name: "#1", product: "小型", headcount: 14, capacity: 540, hours: 8 },
-      { name: "#2", product: "AW", headcount: 20, capacity: 400, hours: 8 },
-      { name: "#3", product: "AW", headcount: 13, capacity: 330, hours: 8 },
-      { name: "#5", product: "4桁", headcount: 28, capacity: 450, hours: 8 },
-      { name: "#4", product: "輸出28号", headcount: 5, capacity: 50, hours: 8 },
-      { name: "#6", product: "輸出28号", headcount: 31, capacity: 475, hours: 8 },
-      { name: "#7", product: "32号(輸出32号)", headcount: 14, capacity: 200, hours: 8 },
-    ],
-  },
-  {
-    code: "0T",
-    name: "恵那工場",
-    lines: [
-      { name: "#2", product: "56cm", headcount: 14, capacity: 680, hours: 8 },
-      { name: "#4", product: "59cm", headcount: 17, capacity: 670, hours: 8 },
-      { name: "#5", product: "59cm", headcount: 14, capacity: 560, hours: 8 },
-      { name: "#6", product: "二口", headcount: 6, capacity: 120, hours: 3,
-        note: "※＃6と＃7は同一人員にて生産" },
-      { name: "#7", product: "一口", headcount: 6, capacity: 150, hours: 3,
-        note: "※＃6と＃7は同一人員にて生産" },
-    ],
-  },
-];
+import { readFileSync } from "node:fs";
 
+const DATA = JSON.parse(
+  readFileSync(new URL("../src/data/factoryLines.json", import.meta.url), "utf8")
+);
+const FACTORIES = DATA.factories;
 /** 始業と休憩の既定値（理論値の計算に使う）。ラインごとの実態は画面で直せる。 */
-const START_TIME = "08:00";
-const BREAKS = [
-  ["10:00", "10:10"],
-  ["12:10", "12:50"],
-  ["14:50", "15:00"],
-];
+const START_TIME = DATA.startTime;
+const BREAKS = DATA.breaks;
 
 /** 残業申請を試すためのサンプル作業者（--with-sample-workers のときだけ）。 */
 const SAMPLE_WORKERS = [
@@ -140,7 +76,7 @@ async function main() {
           (factory_id, name, product, line_type, capacity_per_day, work_hours, start_time,
            headcount, note, active, sort_order)
         VALUES
-          (${factoryId}, ${line.name}, ${line.product}, 'assembly', ${line.capacity}, ${line.hours},
+          (${factoryId}, ${line.name}, ${line.product}, 'assembly', ${line.capacityPerDay}, ${line.workHours},
            ${START_TIME}, ${line.headcount}, ${line.note ?? null}, true, ${order})
         ON CONFLICT (factory_id, name) DO UPDATE SET
           product          = EXCLUDED.product,
@@ -161,12 +97,12 @@ async function main() {
         FROM unnest(${BREAKS.map((b) => b[0])}::text[], ${BREAKS.map((b) => b[1])}::text[]) AS x(s, e)`;
 
       const perManHour =
-        line.headcount > 0 && line.hours > 0
-          ? (line.capacity / (line.headcount * line.hours)).toFixed(2)
+        line.headcount > 0 && line.workHours > 0
+          ? (line.capacityPerDay / (line.headcount * line.workHours)).toFixed(2)
           : "-";
       console.log(
         `  ${line.name.padEnd(3)} ${(line.product ?? "").padEnd(16)} ` +
-          `${line.headcount}人 ${line.capacity}台/日 ${line.hours}H → ${perManHour}台/人・H`
+          `${line.headcount}人 ${line.capacityPerDay}台/日 ${line.workHours}H → ${perManHour}台/人・H`
       );
     }
   }
