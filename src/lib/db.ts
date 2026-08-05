@@ -804,3 +804,20 @@ export async function summarize(filter: SummaryFilter): Promise<SummaryRow[]> {
     }));
 }
 
+
+/**
+ * 報告1件の関係者（申請者・承認者）の社員番号。ポータルのチャット（参加者＝通知先）に渡す。
+ * 承認者未設定（＝生産管理部宛て）の場合は申請者だけを返す。
+ */
+export async function listReportParticipantLoginIds(reportId: string): Promise<string[]> {
+  await ensureSchema();
+  const sql = getSql();
+  const rows = await sql.query(
+    `SELECT DISTINCT u.login_id
+     FROM op_reports r
+     JOIN op_users u ON u.id IN (r.reported_by, r.approver_id)
+     WHERE r.id = $1::uuid`,
+    [reportId]
+  );
+  return (rows as any[]).map((r) => String(r.login_id)).filter(Boolean);
+}

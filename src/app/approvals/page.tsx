@@ -13,6 +13,7 @@ import {
 import PageHeader from "@/components/PageHeader";
 import DbErrorState from "@/components/DbErrorState";
 import SubmitButton from "@/components/SubmitButton";
+import ReportChat from "@/components/ReportChat";
 import { ApprovalBadge, OvertimeDecisionBadge } from "@/components/Badges";
 
 export const dynamic = "force-dynamic";
@@ -184,6 +185,13 @@ export default async function ApprovalsPage() {
                     </Link>
                   </p>
                 ) : null}
+
+                {/* 承認カードと同じスレッド。申請者から承認者へ補足・相談ができる */}
+                <ReportChat
+                  className="mt-2"
+                  reportId={r.id}
+                  title={`${formatDate(r.reportDate)} ${r.factoryName} / ${r.lineName} 残業申請`}
+                />
               </li>
             ))}
           </ul>
@@ -265,6 +273,13 @@ function ApprovalCard({ report: r }: { report: Report }) {
           差し戻す
         </SubmitButton>
       </form>
+
+      {/* 承認前の確認・相談。発言は申請者の LINE WORKS へ通知される */}
+      <ReportChat
+        className="mt-3 border-t border-slate-100 pt-3"
+        reportId={r.id}
+        title={`${formatDate(r.reportDate)} ${r.factoryName} / ${r.lineName} 残業申請`}
+      />
     </li>
   );
 }
