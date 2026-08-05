@@ -6,11 +6,9 @@ import { requireAdminSession, requireMasterEditor } from "./session";
 import {
   createFactory,
   createLine,
-  createWorker,
   deleteFactory,
   deleteLine,
   deleteReport,
-  deleteWorker,
   applyApproval,
   getLine,
   getReport,
@@ -18,11 +16,9 @@ import {
   importFactoryLines,
   isLineInScope,
   saveReport,
-  setUserApprover,
   updateFactory,
   updateLine,
   updateLineRow,
-  updateWorker,
   upsertPlan,
 } from "./db";
 import { parseBreaks, theoreticalAt } from "./capacity";
@@ -89,13 +85,11 @@ export async function saveReportAction(fd: FormData): Promise<void> {
   const line = await getLine(lineId);
   if (!line) throw new Error("ラインが見つかりません");
 
-  // 担当が決まっている人は担当外のラインに入力できない
-  // （グループ長マスタ、無ければ所属工場で絞る。画面だけでなくサーバー側でも必ず確認する）
+  // 工場の管理者は自工場以外に入力できない
+  // （ポータルの所属で絞る。画面だけでなくサーバー側でも必ず確認する）
   const scope = await getUserScope(session);
   if (!isLineInScope(scope, line)) {
-    throw new Error(
-      "担当外のラインには入力できません（担当はグループ長マスタまたは所属工場で決まります）"
-    );
+    throw new Error("所属工場以外のラインには入力できません");
   }
 
   const kindRaw = str(fd, "kind");
@@ -159,7 +153,7 @@ export async function saveReportAction(fd: FormData): Promise<void> {
       overtimeMinutesPerPerson,
     },
     session.userId,
-    // 実施の承認先は本人の上長（利用者マスタで設定。未設定なら生産管理部宛て）
+    // 実施の承認先は本人の上長（ポータルの承認者設定から同期。未設定なら生産管理部宛て）
     session.approverId
   );
 
@@ -207,18 +201,6 @@ export async function approveReportAction(fd: FormData): Promise<void> {
   revalidatePath("/approvals");
   revalidatePath("/reports");
   revalidatePath("/dashboard");
-}
-
-/** 上長（残業申請の承認者）の設定。マスタ編集権限者のみ。 */
-export async function saveUserApproverAction(fd: FormData): Promise<void> {
-  await requireMasterEditor();
-  const id = str(fd, "id");
-  if (!id) return;
-  const approverId = optStr(fd, "approverId");
-  if (approverId === id) throw new Error("自分自身を上長には設定できません");
-  await setUserApprover(id, approverId);
-  revalidatePath("/masters");
-  revalidatePath("/approvals");
 }
 
 export async function deleteReportAction(fd: FormData): Promise<void> {
@@ -326,35 +308,4 @@ export async function deleteLineAction(fd: FormData): Promise<void> {
   await deleteLine(id);
   revalidatePath("/masters");
   revalidatePath("/report");
-}
-
-/* ===== マスタ：グループ長（ラインの残業有無の申請者） ===== */
-
-export async function saveWorkerAction(fd: FormData): Promise<void> {
-  await requireMasterEditor();
-  const id = optStr(fd, "id");
-  const factoryId = str(fd, "factoryId");
-  const employeeNo = str(fd, "employeeNo");
-  const name = str(fd, "name");
-  if (!factoryId || !employeeNo || !name) {
-    throw new Error("工場・社員番号・氏名を入力してください");
-  }
-  const input = {
-    factoryId,
-    lineId: optStr(fd, "lineId"),
-    employeeNo,
-    name,
-  };
-  if (id) await updateWorker(id, input);
-  else await createWorker(input);
-  revalidatePath("/masters");
-  revalidatePath("/report");
-}
-
-export async function deleteWorkerAction(fd: FormData): Promise<void> {
-  await requireMasterEditor();
-  const id = str(fd, "id");
-  if (!id) return;
-  await deleteWorker(id);
-  revalidatePath("/masters");
 }

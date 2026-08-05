@@ -6,7 +6,6 @@
  *
  *   export DATABASE_URL='postgres://...'
  *   node scripts/seed.mjs
- *   node scripts/seed.mjs --with-sample-workers
  *
  * テーブルはアプリが初回アクセス時に作る（src/lib/schema.ts の ensureSchema）。
  * 先に一度ログインしてから実行すること。未作成のときはその旨を出して終了する。
@@ -35,15 +34,6 @@ const FACTORIES = DATA.factories;
 const START_TIME = DATA.startTime;
 const BREAKS = DATA.breaks;
 
-/**
- * 申請フローを試すためのサンプルのグループ長（--with-sample-workers のときだけ）。
- * 社員番号をポータルのログインIDと同じにすると、入力画面がその担当ラインに絞られる。
- */
-const SAMPLE_WORKERS = [
-  { factory: "清洲工場", employeeNo: "90001", name: "サンプル 一郎", line: "#1" },
-  { factory: "清洲工場", employeeNo: "90002", name: "サンプル 二郎", line: "#2" },
-  { factory: "清洲工場", employeeNo: "90003", name: "サンプル 三郎", line: null },
-];
 
 async function main() {
   // テーブルが無いうちに走らせても意味が分からないエラーになるので、先に確認する
@@ -55,7 +45,6 @@ async function main() {
     process.exit(1);
   }
 
-  const factoryIds = new Map();
   let factoryOrder = 0;
   for (const f of FACTORIES) {
     factoryOrder += 10;
@@ -66,7 +55,6 @@ async function main() {
         code = EXCLUDED.code, sort_order = EXCLUDED.sort_order
       RETURNING id`;
     const factoryId = rows[0].id;
-    factoryIds.set(f.name, factoryId);
     console.log(`${f.code} ${f.name}`);
 
     let order = 0;
@@ -106,23 +94,6 @@ async function main() {
           `${line.headcount}人 ${line.capacityPerDay}台/日 ${line.workHours}H → ${perManHour}台/人・H`
       );
     }
-  }
-
-  if (process.argv.includes("--with-sample-workers")) {
-    for (const w of SAMPLE_WORKERS) {
-      const factoryId = factoryIds.get(w.factory);
-      if (!factoryId) continue;
-      const lineRows = w.line
-        ? await sql`SELECT id FROM op_lines WHERE factory_id = ${factoryId} AND name = ${w.line} LIMIT 1`
-        : [];
-      await sql`
-        INSERT INTO op_workers (factory_id, line_id, employee_no, name, active)
-        VALUES (${factoryId}, ${lineRows[0]?.id ?? null}, ${w.employeeNo}, ${w.name}, true)
-        ON CONFLICT (factory_id, employee_no) DO UPDATE SET
-          name = EXCLUDED.name, line_id = EXCLUDED.line_id`;
-    }
-    console.log("");
-    console.log(`サンプル作業者 ${SAMPLE_WORKERS.length}名を登録しました（本番前に削除してください）。`);
   }
 
   console.log("");

@@ -16,7 +16,6 @@ import type {
   Report,
   ReportKind,
   SummaryRow,
-  Worker,
 } from "./types";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -280,173 +279,43 @@ export async function importFactoryLines(): Promise<{ factories: number; lines: 
   return { factories: FACTORY_LINES.factories.length, lines: lineCount };
 }
 
-// ===== 入力範囲（担当ライン）の絞り込み =====
+// ===== 入力範囲（所属工場）の絞り込み =====
 
 /**
- * ログインした人の入力範囲。
- * null は無制限（グループ長マスタに載っていない人＝生産管理部・本部の管理者など）。
+ * ログインした人の入力範囲。null は無制限（全工場に入力できる）。
+ * 区別はポータルのログイン情報だけで行う（アプリ側のマスタ登録は使わない）。
  */
 export interface UserScope {
-  /** 担当ライン。グループ長マスタでラインが設定されている行 */
-  lineIds: string[];
-  /** ライン未設定で登録されている工場（その工場の全ラインに入力できる） */
   factoryIds: string[];
 }
 
 /**
- * ログインした人の入力範囲を出す。優先順位：
- * 1. グループ長マスタに登録があれば、その担当ライン（ライン未設定の行は工場全体）。
- * 2. なければ、ポータル連携の所属（工場名・部署名）がマスタの工場名と一致すれば、その工場に固定。
- *    ポータルでは「大口工場」のような工場が部署として登録されているため、部署名も突き合わせる。
- * 3. どちらも無ければ null（全工場に入力できる）。
- * 生産管理部・ポータル管理者（canEditMaster）は 2 を適用しない（全工場を横断して入力できる）。
+ * ポータル連携の所属（工場名・部署名）とマスタの工場名を突き合わせて入力範囲を出す。
+ * ポータルでは「大口工場」のような工場が部署として登録されているため、部署名も見る。
+ * 一致しなければ null（全工場）。生産管理部・ポータル管理者（canEditMaster）は常に全工場。
  */
 export async function getUserScope(user: {
-  loginId: string;
   factory: string | null;
   department: string | null;
   canEditMaster: boolean;
 }): Promise<UserScope | null> {
+  if (user.canEditMaster) return null;
+  const names = [user.factory, user.department].filter((v): v is string => !!v);
+  if (names.length === 0) return null;
   await ensureSchema();
   const sql = getSql();
-  const rows = await sql`
-    SELECT factory_id, line_id FROM op_workers
-    WHERE employee_no = ${user.loginId}`;
-  if (rows.length > 0) {
-    const lineIds: string[] = [];
-    const factoryIds: string[] = [];
-    for (const r of rows as any[]) {
-      if (r.line_id) lineIds.push(r.line_id as string);
-      else factoryIds.push(r.factory_id as string);
-    }
-    return { lineIds, factoryIds };
-  }
-  // 所属での絞り込み（グループ長登録が無い工場の管理者向け）。
-  // 工場名・部署名のどちらかがマスタの工場名と一致すれば、その工場だけにする
-  if (!user.canEditMaster) {
-    const names = [user.factory, user.department].filter((v): v is string => !!v);
-    if (names.length > 0) {
-      const f = await sql`SELECT id FROM op_factories WHERE name = ANY(${names}::text[])`;
-      if (f.length > 0) {
-        return { lineIds: [], factoryIds: (f as any[]).map((r) => r.id as string) };
-      }
-    }
-  }
-  return null;
+  const rows = await sql`SELECT id FROM op_factories WHERE name = ANY(${names}::text[])`;
+  if (rows.length === 0) return null;
+  return { factoryIds: (rows as any[]).map((r) => r.id as string) };
 }
 
 /** そのラインに入力できるか。scope が null なら常に true。 */
 export function isLineInScope(
   scope: UserScope | null,
-  line: { id: string; factoryId: string }
+  line: { factoryId: string }
 ): boolean {
   if (!scope) return true;
-  return scope.lineIds.includes(line.id) || scope.factoryIds.includes(line.factoryId);
-}
-
-// ===== 利用者（上長の設定） =====
-
-export interface AppUserRow {
-  id: string;
-  loginId: string;
-  name: string;
-  role: string;
-  factory: string | null;
-  department: string | null;
-  portalAdmin: boolean;
-  approverId: string | null;
-  approverName: string | null;
-}
-
-/** 利用者の一覧（上長の設定画面用）。 */
-export async function listAppUsers(): Promise<AppUserRow[]> {
-  await ensureSchema();
-  const sql = getSql();
-  const rows = await sql`
-    SELECT u.id, u.login_id, u.name, u.role, u.factory, u.department, u.portal_admin,
-           u.approver_id, a.name AS approver_name
-    FROM op_users u
-    LEFT JOIN op_users a ON a.id = u.approver_id
-    ORDER BY u.login_id`;
-  return (rows as any[]).map((r) => ({
-    id: r.id as string,
-    loginId: r.login_id as string,
-    name: r.name as string,
-    role: String(r.role ?? "member"),
-    factory: (r.factory as string | null) ?? null,
-    department: (r.department as string | null) ?? null,
-    portalAdmin: r.portal_admin === true,
-    approverId: (r.approver_id as string | null) ?? null,
-    approverName: (r.approver_name as string | null) ?? null,
-  }));
-}
-
-/** 上長（残業申請の承認者）を設定する。null で解除（申請は生産管理部宛てになる）。 */
-export async function setUserApprover(userId: string, approverId: string | null): Promise<void> {
-  await ensureSchema();
-  const sql = getSql();
-  await sql`
-    UPDATE op_users SET approver_id = ${approverId}, updated_at = now()
-    WHERE id = ${userId}`;
-}
-
-// ===== グループ長マスタ（op_workers。ラインの残業有無の申請者） =====
-
-export async function listWorkers(
-  opts: { factoryId?: string | null } = {}
-): Promise<Worker[]> {
-  await ensureSchema();
-  const sql = getSql();
-  const rows = await sql.query(
-    `SELECT w.id, w.factory_id, f.name AS factory_name, w.line_id, l.name AS line_name,
-            w.employee_no, w.name
-     FROM op_workers w
-     JOIN op_factories f ON f.id = w.factory_id
-     LEFT JOIN op_lines l ON l.id = w.line_id
-     WHERE ($1::uuid IS NULL OR w.factory_id = $1)
-     ORDER BY f.sort_order, f.name, w.employee_no`,
-    [opts.factoryId ?? null]
-  );
-  return (rows as any[]).map((r) => ({
-    id: r.id as string,
-    factoryId: r.factory_id as string,
-    factoryName: r.factory_name as string,
-    lineId: (r.line_id as string | null) ?? null,
-    lineName: (r.line_name as string | null) ?? null,
-    employeeNo: r.employee_no as string,
-    name: r.name as string,
-  }));
-}
-
-export interface WorkerInput {
-  factoryId: string;
-  lineId: string | null;
-  employeeNo: string;
-  name: string;
-}
-
-export async function createWorker(input: WorkerInput): Promise<void> {
-  await ensureSchema();
-  const sql = getSql();
-  await sql`
-    INSERT INTO op_workers (factory_id, line_id, employee_no, name)
-    VALUES (${input.factoryId}, ${input.lineId}, ${input.employeeNo}, ${input.name})`;
-}
-
-export async function updateWorker(id: string, input: WorkerInput): Promise<void> {
-  await ensureSchema();
-  const sql = getSql();
-  await sql`
-    UPDATE op_workers
-    SET factory_id = ${input.factoryId}, line_id = ${input.lineId},
-        employee_no = ${input.employeeNo}, name = ${input.name}
-    WHERE id = ${id}`;
-}
-
-export async function deleteWorker(id: string): Promise<void> {
-  await ensureSchema();
-  const sql = getSql();
-  await sql`DELETE FROM op_workers WHERE id = ${id}`;
+  return scope.factoryIds.includes(line.factoryId);
 }
 
 // ===== 日次計画 =====
