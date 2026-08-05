@@ -103,8 +103,9 @@ export default async function ReportPage({
     lines.find((l) => l.factoryId === factoryId) ??
     null;
 
-  const plan = line ? await getPlan(line.id, date) : null;
-  const dayReports = line ? await listReportsOfDay(line.id, date) : [];
+  const [plan, dayReports] = line
+    ? await Promise.all([getPlan(line.id, date), listReportsOfDay(line.id, date)])
+    : [null, []];
   const qty = QTY_LABEL[line?.lineType ?? "assembly"];
 
   return (

@@ -16,6 +16,7 @@ Notably in this repo: the `middleware` file convention is deprecated and renamed
   `MASTER_EDIT_DEPARTMENTS` またはポータル管理権限あり）。部署・管理権限はポータル SSO 由来の値を
   DB に持ち、判定は毎回 DB から引き直す。
 - スキーマは `src/lib/schema.ts` の `ensureSchema()` に冪等な DDL として足す。マイグレーションファイルは持たない。
+  **DDL を足したら `SCHEMA_VERSION` を必ず +1 する**（版数が上がらないと既存DBに DDL が流れない）。
 - 日付・時刻の表示は JST 固定（`src/lib/format.ts`）。DB には `date` / `time` で持つ。
 - 実績は「その時刻までの累計」で記録する。合計ではなく**最後の報告値**を使うこと（集計クエリ参照）。
 - 利用者の区別はすべてポータルのログイン情報で行う（アプリ側の利用者マスタは持たない）。
