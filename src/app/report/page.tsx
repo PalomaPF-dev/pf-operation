@@ -47,8 +47,8 @@ export default async function ReportPage({
     [factories, lines, scope] = await Promise.all([
       listFactories(),
       listLines({ activeOnly: true }),
-      // グループ長マスタに載っている人は担当ラインだけに絞る（載っていなければ全ライン）
-      getUserScope(session.loginId),
+      // グループ長は担当ライン、それ以外は所属工場に絞る（生産管理部・ポータル管理者は全工場）
+      getUserScope(session),
     ]);
   } catch (e) {
     console.error("[report]", e);
@@ -71,8 +71,8 @@ export default async function ReportPage({
       <div className="p-4 sm:p-6">
         <PageHeader title="進捗・残業の入力" />
         <div className="rounded-xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500">
-          担当ラインが登録されていません。グループ長マスタの担当ライン（社員番号 {session.loginId}）を
-          ご確認ください。
+          担当の工場・ラインが見つかりません。グループ長マスタの担当ライン
+          （社員番号 {session.loginId}）または所属工場のラインの登録をご確認ください。
         </div>
       </div>
     );
@@ -118,7 +118,9 @@ export default async function ReportPage({
       {scope ? (
         <div className="mb-4 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
           <UserCheck className="h-4 w-4 shrink-0" />
-          担当ライン（{lines.map((l) => `${l.factoryName} ${l.name}`).join("・")}）のみ表示しています。
+          {scope.lineIds.length > 0
+            ? `担当ライン（${lines.map((l) => `${l.factoryName} ${l.name}`).join("・")}）のみ表示しています。`
+            : `所属工場（${factories.map((f) => f.name).join("・")}）のみ表示しています。`}
         </div>
       ) : null}
 
