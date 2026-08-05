@@ -213,7 +213,7 @@ function FactoryTable({
         <thead className="bg-slate-50">
           <tr className="border-b border-slate-200">
             <th className={`${TH} w-20`}>ライン</th>
-            <th className={TH}>器種</th>
+            <th className={`${TH} w-52`}>器種</th>
             <th className={`${TH} w-24`}>種別</th>
             <th className={`${TH} w-24 text-right`}>現状人員</th>
             <th className={`${TH} w-32 text-right`}>生産能力</th>
@@ -244,7 +244,7 @@ function FactoryTable({
                         defaultValue={l.product ?? ""}
                         maxLength={60}
                         placeholder="器種"
-                        className={`${inputCls} w-full min-w-[10rem]`}
+                        className={`${inputCls} w-full min-w-[11rem]`}
                       />
                     </>
                   ) : (
