@@ -60,11 +60,16 @@ async function buildSchema(): Promise<void> {
       factory       text,
       -- ポータルの所属部署名。マスタを編集できる部署かどうかの判定に使う
       department    text,
+      -- ポータルの管理権限（can_manage）。部署によらずマスタを編集できる
+      portal_admin  boolean NOT NULL DEFAULT false,
       created_at    timestamptz NOT NULL DEFAULT now(),
       updated_at    timestamptz NOT NULL DEFAULT now()
     )`);
   // 既存DBにも列を足す（後から追加した列は ALTER で冪等に）
   await safeDdl(() => sql`ALTER TABLE op_users ADD COLUMN IF NOT EXISTS department text`);
+  await safeDdl(
+    () => sql`ALTER TABLE op_users ADD COLUMN IF NOT EXISTS portal_admin boolean NOT NULL DEFAULT false`
+  );
 
   // ===== マスタ =====
   await safeDdl(() => sql`

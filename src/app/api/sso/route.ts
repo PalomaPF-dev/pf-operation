@@ -34,6 +34,8 @@ interface SsoClaims {
   factory: string | null;
   /** ポータルの所属部署名。マスタ編集の可否判定に使う（ポータルが送らなければ null） */
   department: string | null;
+  /** ポータルの管理権限（canManage）。部署によらずマスタを編集できる */
+  portalAdmin: boolean;
 }
 
 /** トークンを検証し、有効なら中身を返す（無効は null）。 */
@@ -51,7 +53,10 @@ function verifySsoToken(token: string, key: string): SsoClaims | null {
     return null;
   }
   if (typeof data !== "object" || data === null) return null;
-  const { loginId, name, role, factory, department, app, exp } = data as Record<string, unknown>;
+  const { loginId, name, role, factory, department, canManage, app, exp } = data as Record<
+    string,
+    unknown
+  >;
   if (typeof loginId !== "string" || loginId.length === 0) return null;
   if (app !== APP_KEY) return null;
   if (typeof exp !== "number" || !(exp > Date.now())) return null;
@@ -61,6 +66,7 @@ function verifySsoToken(token: string, key: string): SsoClaims | null {
     role: role === "admin" ? "admin" : "member",
     factory: typeof factory === "string" && factory ? factory : null,
     department: typeof department === "string" && department ? department : null,
+    portalAdmin: canManage === true,
   };
 }
 
@@ -90,6 +96,7 @@ export async function GET(req: Request) {
         role: claims.role,
         factory: claims.factory,
         department: claims.department,
+        portalAdmin: claims.portalAdmin,
       }));
     } catch (e) {
       console.error("[sso] database:", e);

@@ -85,7 +85,7 @@ export default async function MastersPage({
           <Info className="mt-px h-4 w-4 shrink-0" />
           <span>
             閲覧のみです。マスタを編集できるのは{masterEditDepartments().join("・")}
-            の管理者のみです。
+            の管理者、またはポータル管理権限を持つ管理者のみです。
           </span>
         </div>
       ) : null}

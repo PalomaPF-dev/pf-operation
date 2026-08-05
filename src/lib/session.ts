@@ -12,6 +12,8 @@ export interface AppSession {
   factory: string | null;
   /** 所属部署（ポータル連携値）。マスタ編集の可否判定に使う */
   department: string | null;
+  /** ポータルの管理権限を持つか（部署によらずマスタを編集できる） */
+  portalAdmin: boolean;
   /** マスタ（工場・ライン・作業者）を編集できるか */
   canEditMaster: boolean;
 }
@@ -28,10 +30,15 @@ export function masterEditDepartments(): string[] {
     .filter(Boolean);
 }
 
-/** その部署がマスタを編集できるか（部署未連携のユーザーは編集不可）。 */
-function canEditMaster(department: string | null): boolean {
-  if (!department) return false;
-  return masterEditDepartments().includes(department);
+/**
+ * マスタを編集できるか。
+ * - ポータルの管理権限を持つ人（ポータル管理者）は、部署によらず編集できる。
+ * - それ以外は所属部署が MASTER_EDIT_DEPARTMENTS に含まれる場合のみ（部署未連携は編集不可）。
+ */
+function canEditMaster(user: { department: string | null; portalAdmin: boolean }): boolean {
+  if (user.portalAdmin) return true;
+  if (!user.department) return false;
+  return masterEditDepartments().includes(user.department);
 }
 
 /**
@@ -67,7 +74,8 @@ export async function requireAdminSession(): Promise<AppSession> {
     userName: user.name,
     factory: user.factory,
     department: user.department,
-    canEditMaster: canEditMaster(user.department),
+    portalAdmin: user.portalAdmin,
+    canEditMaster: canEditMaster(user),
   };
 }
 
@@ -80,7 +88,8 @@ export async function requireMasterEditor(): Promise<AppSession> {
   const s = await requireAdminSession();
   if (!s.canEditMaster) {
     throw new Error(
-      `マスタを編集できるのは${masterEditDepartments().join("・")}の管理者のみです`
+      `マスタを編集できるのは${masterEditDepartments().join("・")}の管理者、` +
+        "またはポータル管理権限を持つ管理者のみです"
     );
   }
   return s;
@@ -98,6 +107,7 @@ export async function getAdminSession(): Promise<AppSession | null> {
     userName: user.name,
     factory: user.factory,
     department: user.department,
-    canEditMaster: canEditMaster(user.department),
+    portalAdmin: user.portalAdmin,
+    canEditMaster: canEditMaster(user),
   };
 }
