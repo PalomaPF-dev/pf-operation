@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 /**
  * ポータルからの SSO ログイン API（このアプリ唯一のログイン経路）。
  * ポータルが発行した短命トークン（HMAC-SHA256署名・60秒有効）を検証し、
- * パスワード入力なしで next-auth の JWT セッションを発行して "/" へ遷移する。
+ * パスワード入力なしで next-auth の JWT セッションを発行して入力画面（/report）へ遷移する。
  * トークン: base64url(JSON{loginId, name, role, app, exp}) + "." + hex(HMAC-SHA256(payload, PF_PROVISION_KEY))
  *
  * 管理者専用アプリのため、role が 'admin' でないユーザーはここで弾く。
@@ -145,7 +145,8 @@ export async function GET(req: Request) {
       maxAge: SESSION_MAX_AGE,
     });
 
-    const res = NextResponse.redirect(new URL("/", url), 302);
+    // "/" はさらに /report へリダイレクトするだけなので、1往復を省いて直接入力画面へ
+    const res = NextResponse.redirect(new URL("/report", url), 302);
     res.cookies.set(SESSION_COOKIE_NAME, jwt, {
       httpOnly: true,
       sameSite: "lax",

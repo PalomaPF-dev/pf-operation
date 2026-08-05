@@ -19,6 +19,13 @@ async function safeDdl(run: () => Promise<unknown>): Promise<void> {
   }
 }
 
+/**
+ * スキーマの版数。DDL を追加・変更したら必ず +1 する。
+ * DB 側の op_schema_info がこの版数以上なら、DDL を丸ごとスキップする
+ * （サーバーレスの新インスタンスが毎回30本近い DDL を流すと起動が数秒遅くなるため）。
+ */
+const SCHEMA_VERSION = 1;
+
 let schemaReady: Promise<void> | null = null;
 
 /**
@@ -46,6 +53,14 @@ export function ensureSchema(): Promise<void> {
 
 async function buildSchema(): Promise<void> {
   const sql = getSql();
+
+  // 既に最新版なら 1 クエリで抜ける（通常の起動はこのパス）
+  try {
+    const rows = await sql`SELECT version FROM op_schema_info WHERE id = true`;
+    if (rows[0] && Number((rows[0] as { version: unknown }).version) >= SCHEMA_VERSION) return;
+  } catch {
+    // テーブルが無い（初回）→ 下の DDL で作る。接続エラーなら DDL 側でも失敗して表面化する
+  }
 
   // ===== 利用者 =====
   await safeDdl(() => sql`
@@ -246,4 +261,14 @@ async function buildSchema(): Promise<void> {
   await safeDdl(
     () => sql`CREATE INDEX IF NOT EXISTS op_workers_employee_idx ON op_workers (employee_no)`
   );
+
+  // ===== 版数の記録（次回からは冒頭の1クエリで抜ける）=====
+  await safeDdl(() => sql`
+    CREATE TABLE IF NOT EXISTS op_schema_info (
+      id      boolean PRIMARY KEY DEFAULT true CHECK (id),
+      version integer NOT NULL
+    )`);
+  await sql`
+    INSERT INTO op_schema_info (id, version) VALUES (true, ${SCHEMA_VERSION})
+    ON CONFLICT (id) DO UPDATE SET version = GREATEST(op_schema_info.version, ${SCHEMA_VERSION})`;
 }
