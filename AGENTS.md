@@ -19,7 +19,8 @@ Notably in this repo: the `middleware` file convention is deprecated and renamed
 - 日付・時刻の表示は JST 固定（`src/lib/format.ts`）。DB には `date` / `time` で持つ。
 - 実績は「その時刻までの累計」で記録する。合計ではなく**最後の報告値**を使うこと（集計クエリ参照）。
 - 入力できるラインは、ログインID＝グループ長マスタ（`op_workers`＝ラインの残業申請者）の
-  社員番号の一致で絞る（`getUserScope`）。
+  社員番号の一致、なければポータル連携の所属工場名の一致で絞る（`getUserScope`。
+  生産管理部・ポータル管理者は絞らない）。
   画面の絞り込みだけでなく、`saveReportAction` でも `isLineInScope` で必ず検証する。
 - 残業の承認ワークフロー：実施(do)＝報告者の上長（`op_users.approver_id`＝ポータルの承認者設定を
   SSO・プロビジョニングで同期。未設定なら生産管理部）が承認し、

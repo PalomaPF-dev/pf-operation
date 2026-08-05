@@ -294,23 +294,37 @@ export interface UserScope {
 }
 
 /**
- * ログインID（社員番号）とグループ長マスタの社員番号を突き合わせて入力範囲を出す。
- * グループ長として登録されていなければ null（全ラインに入力できる）。
+ * ログインした人の入力範囲を出す。優先順位：
+ * 1. グループ長マスタに登録があれば、その担当ライン（ライン未設定の行は工場全体）。
+ * 2. なければ、ポータル連携の所属工場名がマスタの工場名と一致すれば、その工場に固定。
+ * 3. どちらも無ければ null（全工場に入力できる）。
+ * 生産管理部・ポータル管理者（canEditMaster）は 2 を適用しない（全工場を横断して入力できる）。
  */
-export async function getUserScope(loginId: string): Promise<UserScope | null> {
+export async function getUserScope(user: {
+  loginId: string;
+  factory: string | null;
+  canEditMaster: boolean;
+}): Promise<UserScope | null> {
   await ensureSchema();
   const sql = getSql();
   const rows = await sql`
     SELECT factory_id, line_id FROM op_workers
-    WHERE employee_no = ${loginId}`;
-  if (rows.length === 0) return null;
-  const lineIds: string[] = [];
-  const factoryIds: string[] = [];
-  for (const r of rows as any[]) {
-    if (r.line_id) lineIds.push(r.line_id as string);
-    else factoryIds.push(r.factory_id as string);
+    WHERE employee_no = ${user.loginId}`;
+  if (rows.length > 0) {
+    const lineIds: string[] = [];
+    const factoryIds: string[] = [];
+    for (const r of rows as any[]) {
+      if (r.line_id) lineIds.push(r.line_id as string);
+      else factoryIds.push(r.factory_id as string);
+    }
+    return { lineIds, factoryIds };
   }
-  return { lineIds, factoryIds };
+  // 所属工場での絞り込み（グループ長登録が無い工場の管理者向け）
+  if (!user.canEditMaster && user.factory) {
+    const f = await sql`SELECT id FROM op_factories WHERE name = ${user.factory} LIMIT 1`;
+    if (f[0]) return { lineIds: [], factoryIds: [f[0].id as string] };
+  }
+  return null;
 }
 
 /** そのラインに入力できるか。scope が null なら常に true。 */

@@ -89,11 +89,13 @@ export async function saveReportAction(fd: FormData): Promise<void> {
   const line = await getLine(lineId);
   if (!line) throw new Error("ラインが見つかりません");
 
-  // 作業者マスタで担当が決まっている人は、担当ライン以外に入力できない
-  // （画面の絞り込みだけでなくサーバー側でも必ず確認する）
-  const scope = await getUserScope(session.loginId);
+  // 担当が決まっている人は担当外のラインに入力できない
+  // （グループ長マスタ、無ければ所属工場で絞る。画面だけでなくサーバー側でも必ず確認する）
+  const scope = await getUserScope(session);
   if (!isLineInScope(scope, line)) {
-    throw new Error("担当外のラインには入力できません（担当はグループ長マスタの登録で決まります）");
+    throw new Error(
+      "担当外のラインには入力できません（担当はグループ長マスタまたは所属工場で決まります）"
+    );
   }
 
   const kindRaw = str(fd, "kind");
