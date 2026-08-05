@@ -8,17 +8,24 @@ export default function SubmitButton({
   className,
   pendingLabel = "保存中…",
   confirm,
+  name,
+  value,
 }: {
   children: React.ReactNode;
   className?: string;
   pendingLabel?: string;
   /** 指定すると押下時に確認ダイアログを出す（削除など） */
   confirm?: string;
+  /** 同じフォームに複数の送信ボタンを置くとき（承認／差し戻しなど）の識別用 */
+  name?: string;
+  value?: string;
 }) {
   const { pending } = useFormStatus();
   return (
     <button
       type="submit"
+      name={name}
+      value={value}
       disabled={pending}
       onClick={(e) => {
         if (confirm && !window.confirm(confirm)) e.preventDefault();

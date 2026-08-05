@@ -70,6 +70,11 @@ async function buildSchema(): Promise<void> {
   await safeDdl(
     () => sql`ALTER TABLE op_users ADD COLUMN IF NOT EXISTS portal_admin boolean NOT NULL DEFAULT false`
   );
+  // 上長（残業申請の承認者）。利用者マスタで設定する
+  await safeDdl(
+    () =>
+      sql`ALTER TABLE op_users ADD COLUMN IF NOT EXISTS approver_id uuid REFERENCES op_users(id) ON DELETE SET NULL`
+  );
 
   // ===== マスタ =====
   await safeDdl(() => sql`
@@ -169,8 +174,29 @@ async function buildSchema(): Promise<void> {
       note              text,
       reported_by       uuid REFERENCES op_users(id) ON DELETE SET NULL,
       reported_at       timestamptz NOT NULL DEFAULT now(),
+      -- 残業・翌日回しの承認ワークフロー。
+      --   実施(do)      … 報告者の上長が承認（上長未設定なら生産管理部）→ 生産管理部へ届く
+      --   翌日回し(defer)… 生産管理部が許可（approver_id は NULL＝生産管理部宛て）
+      -- approval_status: 'pending' | 'approved' | 'rejected'（NULL＝承認対象外）
+      approver_id       uuid REFERENCES op_users(id) ON DELETE SET NULL,
+      approval_status   text,
+      approval_by       uuid REFERENCES op_users(id) ON DELETE SET NULL,
+      approval_at       timestamptz,
+      approval_comment  text,
       UNIQUE (line_id, report_date, report_time)
     )`);
+  // 既存DBにも承認列を足す（後から追加した列は ALTER で冪等に）
+  await safeDdl(
+    () =>
+      sql`ALTER TABLE op_reports ADD COLUMN IF NOT EXISTS approver_id uuid REFERENCES op_users(id) ON DELETE SET NULL`
+  );
+  await safeDdl(() => sql`ALTER TABLE op_reports ADD COLUMN IF NOT EXISTS approval_status text`);
+  await safeDdl(
+    () =>
+      sql`ALTER TABLE op_reports ADD COLUMN IF NOT EXISTS approval_by uuid REFERENCES op_users(id) ON DELETE SET NULL`
+  );
+  await safeDdl(() => sql`ALTER TABLE op_reports ADD COLUMN IF NOT EXISTS approval_at timestamptz`);
+  await safeDdl(() => sql`ALTER TABLE op_reports ADD COLUMN IF NOT EXISTS approval_comment text`);
 
   await safeDdl(() => sql`
     CREATE TABLE IF NOT EXISTS op_overtime_members (
@@ -188,4 +214,13 @@ async function buildSchema(): Promise<void> {
   await safeDdl(() => sql`CREATE INDEX IF NOT EXISTS op_ot_members_report_idx ON op_overtime_members (report_id)`);
   await safeDdl(() => sql`CREATE INDEX IF NOT EXISTS op_workers_factory_idx ON op_workers (factory_id)`);
   await safeDdl(() => sql`CREATE INDEX IF NOT EXISTS op_line_breaks_line_idx ON op_line_breaks (line_id)`);
+  // 承認待ち一覧用（承認待ちは常に少数なので部分索引にする）
+  await safeDdl(
+    () =>
+      sql`CREATE INDEX IF NOT EXISTS op_reports_pending_idx ON op_reports (approval_status) WHERE approval_status = 'pending'`
+  );
+  // ライン絞り込み用（ログインIDと作業者の社員番号を突き合わせる）
+  await safeDdl(
+    () => sql`CREATE INDEX IF NOT EXISTS op_workers_employee_idx ON op_workers (employee_no)`
+  );
 }

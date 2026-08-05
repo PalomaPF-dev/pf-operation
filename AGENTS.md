@@ -18,4 +18,9 @@ Notably in this repo: the `middleware` file convention is deprecated and renamed
 - スキーマは `src/lib/schema.ts` の `ensureSchema()` に冪等な DDL として足す。マイグレーションファイルは持たない。
 - 日付・時刻の表示は JST 固定（`src/lib/format.ts`）。DB には `date` / `time` で持つ。
 - 実績は「その時刻までの累計」で記録する。合計ではなく**最後の報告値**を使うこと（集計クエリ参照）。
+- 入力できるラインは、ログインID＝作業者マスタの社員番号の一致で絞る（`getUserScope`）。
+  画面の絞り込みだけでなく、`saveReportAction` でも `isLineInScope` で必ず検証する。
+- 残業の承認ワークフロー：実施(do)＝報告者の上長（`op_users.approver_id`、未設定なら生産管理部）が承認し、
+  承認済みが生産管理部へ届く。翌日回し(defer)＝生産管理部（`canEditMaster`）が許可する。
+  承認の権限判定は `approveReportAction` に集約。報告を上書きすると承認は pending に戻る。
 - 理論値の計算は `src/lib/capacity.ts` に集約。休憩は実時刻で差し引き、稼働時間(H)で頭打ちにする。

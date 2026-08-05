@@ -14,6 +14,7 @@ import PageHeader from "@/components/PageHeader";
 import DbErrorState from "@/components/DbErrorState";
 import SubmitButton from "@/components/SubmitButton";
 import {
+  ApprovalBadge,
   LineTypeBadge,
   OvertimeDecisionBadge,
   ProgressStatusBadge,
@@ -161,6 +162,7 @@ export default async function ReportsPage({
                   <LineTypeBadge type={r.lineType} />
                   <ProgressStatusBadge status={r.progressStatus} />
                   <OvertimeDecisionBadge decision={r.overtimeDecision} />
+                  <ApprovalBadge status={r.approvalStatus} />
                 </div>
 
                 <div className="mb-2 flex flex-wrap gap-x-4 gap-y-1 text-sm tabular-nums text-slate-700">
@@ -216,6 +218,17 @@ export default async function ReportsPage({
                   <span>
                     入力 {r.reportedByName ?? "—"}（{formatDateTime(r.reportedAt)}）
                   </span>
+                  {r.approvalStatus === "pending" ? (
+                    <span>
+                      承認待ち：{r.overtimeDecision === "defer" ? "生産管理部" : (r.approverName ?? "生産管理部")}
+                    </span>
+                  ) : null}
+                  {r.approvalStatus === "approved" || r.approvalStatus === "rejected" ? (
+                    <span>
+                      {r.approvalStatus === "approved" ? "承認" : "差し戻し"}：{r.approvalByName ?? "—"}
+                      （{formatDateTime(r.approvalAt)}）
+                    </span>
+                  ) : null}
                   <span className="ml-auto flex items-center gap-2">
                     <Link
                       href={`/report?line=${r.lineId}&factory=${r.factoryId}&date=${r.reportDate}`}

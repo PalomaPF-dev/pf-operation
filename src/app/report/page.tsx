@@ -1,7 +1,15 @@
 import Link from "next/link";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, UserCheck } from "lucide-react";
 import { requireAdminSession } from "@/lib/session";
-import { getPlan, listFactories, listLines, listReportsOfDay, listWorkers } from "@/lib/db";
+import {
+  getPlan,
+  getUserScope,
+  isLineInScope,
+  listFactories,
+  listLines,
+  listReportsOfDay,
+  listWorkers,
+} from "@/lib/db";
 import { saveReportAction, deleteReportAction } from "@/lib/actions";
 import { formatDate, formatDateTime, formatHours, nowJstMinutes, minutesToTime, todayString } from "@/lib/format";
 import {
@@ -15,7 +23,7 @@ import PageHeader from "@/components/PageHeader";
 import DbErrorState from "@/components/DbErrorState";
 import SubmitButton from "@/components/SubmitButton";
 import ReportForm from "@/components/ReportForm";
-import { LineTypeBadge, ProgressBadge } from "@/components/Badges";
+import { ApprovalBadge, LineTypeBadge, ProgressBadge } from "@/components/Badges";
 
 export const dynamic = "force-dynamic";
 
@@ -29,16 +37,21 @@ export default async function ReportPage({
 }: {
   searchParams: Promise<{ date?: string; factory?: string; line?: string; saved?: string }>;
 }) {
-  await requireAdminSession();
+  const session = await requireAdminSession();
   const sp = await searchParams;
   const date = /^\d{4}-\d{2}-\d{2}$/.test(sp.date ?? "") ? sp.date! : todayString();
 
-  let factories, lines, workers;
+  let factories: Awaited<ReturnType<typeof listFactories>>;
+  let lines: Awaited<ReturnType<typeof listLines>>;
+  let workers: Awaited<ReturnType<typeof listWorkers>>;
+  let scope: Awaited<ReturnType<typeof getUserScope>>;
   try {
-    [factories, lines, workers] = await Promise.all([
+    [factories, lines, workers, scope] = await Promise.all([
       listFactories(),
       listLines({ activeOnly: true }),
       listWorkers({ activeOnly: true }),
+      // 作業者マスタに載っている人は担当ラインだけに絞る（載っていなければ全ライン）
+      getUserScope(session.loginId),
     ]);
   } catch (e) {
     console.error("[report]", e);
@@ -46,6 +59,24 @@ export default async function ReportPage({
       <div className="p-4 sm:p-6">
         <PageHeader title="進捗・残業の入力" />
         <DbErrorState />
+      </div>
+    );
+  }
+
+  // 担当が決まっている人は、そのラインだけを見せる（サーバーアクション側でも検証している）
+  if (scope) {
+    lines = lines.filter((l) => isLineInScope(scope, l));
+    factories = factories.filter((f) => lines.some((l) => l.factoryId === f.id));
+  }
+
+  if (scope && lines.length === 0) {
+    return (
+      <div className="p-4 sm:p-6">
+        <PageHeader title="進捗・残業の入力" />
+        <div className="rounded-xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500">
+          担当ラインが登録されていません。作業者マスタの所属ライン（社員番号 {session.loginId}）を
+          ご確認ください。
+        </div>
       </div>
     );
   }
@@ -86,6 +117,13 @@ export default async function ReportPage({
         title="進捗・残業の入力"
         description="決められたタイミングで進捗を記録し、足りない場合は残業を申請します。"
       />
+
+      {scope ? (
+        <div className="mb-4 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+          <UserCheck className="h-4 w-4 shrink-0" />
+          担当ライン（{lines.map((l) => `${l.factoryName} ${l.name}`).join("・")}）のみ表示しています。
+        </div>
+      ) : null}
 
       {sp.saved ? (
         <div className="mb-4 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
@@ -156,11 +194,12 @@ export default async function ReportPage({
                   >
                     {PROGRESS_STATUS_LABEL[r.progressStatus]}
                   </span>
-                  <span className="ml-auto text-xs text-slate-500">
+                  <span className="ml-auto flex items-center gap-1.5 text-xs text-slate-500">
                     残業：{OVERTIME_DECISION_LABEL[r.overtimeDecision]}
                     {r.overtimeMinutes > 0
                       ? `（${r.members.length}名 / ${formatHours(r.overtimeMinutes)}）`
                       : ""}
+                    <ApprovalBadge status={r.approvalStatus} />
                   </span>
                 </div>
 

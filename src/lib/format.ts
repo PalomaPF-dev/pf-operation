@@ -19,6 +19,14 @@ export function monthStartString(): string {
   return `${todayString().slice(0, 7)}-01`;
 }
 
+/** "YYYY-MM-DD" に日数を足す（負なら遡る）。 */
+export function addDays(date: string, days: number): string {
+  const d = new Date(`${date}T00:00:00+09:00`);
+  if (Number.isNaN(d.getTime())) return date;
+  d.setUTCDate(d.getUTCDate() + days);
+  return toDateString(d);
+}
+
 /** "YYYY-MM-DD" → "M/D(曜)"。 */
 export function formatDate(value: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);

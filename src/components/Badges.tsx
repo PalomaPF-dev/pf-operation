@@ -1,7 +1,9 @@
 import {
+  APPROVAL_STATUS_LABEL,
   LINE_TYPE_LABEL,
   OVERTIME_DECISION_LABEL,
   PROGRESS_STATUS_LABEL,
+  type ApprovalStatus,
   type LineType,
   type OvertimeDecision,
   type ProgressStatus,
@@ -57,4 +59,16 @@ export function OvertimeDecisionBadge({ decision }: { decision: OvertimeDecision
         ? "bg-sky-50 text-sky-700 ring-1 ring-sky-200"
         : "bg-slate-100 text-slate-600 ring-1 ring-slate-200";
   return <span className={`${base} ${cls}`}>残業：{OVERTIME_DECISION_LABEL[decision]}</span>;
+}
+
+/** 承認状態（承認待ち／承認済み／差し戻し）。null（対象外）は出さない。 */
+export function ApprovalBadge({ status }: { status: ApprovalStatus | null }) {
+  if (!status) return null;
+  const cls =
+    status === "approved"
+      ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+      : status === "rejected"
+        ? "bg-rose-50 text-rose-700 ring-1 ring-rose-200"
+        : "bg-amber-50 text-amber-700 ring-1 ring-amber-200";
+  return <span className={`${base} ${cls}`}>{APPROVAL_STATUS_LABEL[status]}</span>;
 }

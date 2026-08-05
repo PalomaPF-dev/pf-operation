@@ -369,6 +369,18 @@ export default function ReportForm({
               </button>
             ))}
           </div>
+          {effectiveDecision === "do" ? (
+            <p className="mt-1.5 text-xs text-slate-500">
+              「実施」は登録すると<strong className="font-medium">上長の承認</strong>
+              に回り、承認後に生産管理部へ届きます（上長が未設定の場合は生産管理部が承認します）。
+            </p>
+          ) : null}
+          {effectiveDecision === "defer" ? (
+            <p className="mt-1.5 text-xs text-slate-500">
+              「翌日回し」は<strong className="font-medium">生産管理部の許可</strong>
+              が必要です。登録すると許可待ちになります。
+            </p>
+          ) : null}
         </div>
 
         {/* 理由（遅延・残業のとき） */}
