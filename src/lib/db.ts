@@ -40,24 +40,36 @@ export async function listFactories(): Promise<Factory[]> {
   await ensureSchema();
   const sql = getSql();
   const rows = await sql`
-    SELECT id, name, sort_order FROM op_factories ORDER BY sort_order, name`;
+    SELECT id, name, code, sort_order FROM op_factories ORDER BY sort_order, name`;
   return rows.map((r: any) => ({
     id: r.id as string,
     name: r.name as string,
+    code: (r.code as string | null) ?? null,
     sortOrder: num(r.sort_order),
   }));
 }
 
-export async function createFactory(name: string, sortOrder: number): Promise<void> {
+export async function createFactory(
+  name: string,
+  code: string | null,
+  sortOrder: number
+): Promise<void> {
   await ensureSchema();
   const sql = getSql();
-  await sql`INSERT INTO op_factories (name, sort_order) VALUES (${name}, ${sortOrder})`;
+  await sql`INSERT INTO op_factories (name, code, sort_order) VALUES (${name}, ${code}, ${sortOrder})`;
 }
 
-export async function updateFactory(id: string, name: string, sortOrder: number): Promise<void> {
+export async function updateFactory(
+  id: string,
+  name: string,
+  code: string | null,
+  sortOrder: number
+): Promise<void> {
   await ensureSchema();
   const sql = getSql();
-  await sql`UPDATE op_factories SET name = ${name}, sort_order = ${sortOrder} WHERE id = ${id}`;
+  await sql`
+    UPDATE op_factories SET name = ${name}, code = ${code}, sort_order = ${sortOrder}
+    WHERE id = ${id}`;
 }
 
 export async function deleteFactory(id: string): Promise<void> {
@@ -81,6 +93,7 @@ function mapLine(r: any): Line {
     factoryId: r.factory_id as string,
     factoryName: r.factory_name as string,
     name: r.name as string,
+    product: (r.product as string | null) ?? null,
     lineType: toLineType(r.line_type),
     capacityPerDay: num(r.capacity_per_day),
     workHours: num(r.work_hours),
@@ -95,7 +108,7 @@ function mapLine(r: any): Line {
 
 const LINE_SELECT = `
   SELECT l.id, l.factory_id, f.name AS factory_name, f.sort_order AS factory_sort,
-         l.name, l.line_type, l.capacity_per_day, l.work_hours, l.start_time,
+         l.name, l.product, l.line_type, l.capacity_per_day, l.work_hours, l.start_time,
          l.headcount, l.note, l.active, l.sort_order,
          COALESCE(
            (SELECT array_agg(b.start_time::text || '|' || b.end_time::text ORDER BY b.start_time)
@@ -131,6 +144,7 @@ export async function getLine(id: string): Promise<Line | null> {
 export interface LineInput {
   factoryId: string;
   name: string;
+  product: string | null;
   lineType: LineType;
   capacityPerDay: number;
   workHours: number;
@@ -147,9 +161,10 @@ export async function createLine(input: LineInput): Promise<string> {
   const sql = getSql();
   const rows = await sql`
     INSERT INTO op_lines
-      (factory_id, name, line_type, capacity_per_day, work_hours, start_time, headcount, note, active, sort_order)
+      (factory_id, name, product, line_type, capacity_per_day, work_hours, start_time,
+       headcount, note, active, sort_order)
     VALUES
-      (${input.factoryId}, ${input.name}, ${input.lineType}, ${input.capacityPerDay},
+      (${input.factoryId}, ${input.name}, ${input.product}, ${input.lineType}, ${input.capacityPerDay},
        ${input.workHours}, ${input.startTime}, ${input.headcount}, ${input.note},
        ${input.active}, ${input.sortOrder})
     RETURNING id`;
@@ -163,7 +178,8 @@ export async function updateLine(id: string, input: LineInput): Promise<void> {
   const sql = getSql();
   await sql`
     UPDATE op_lines
-    SET factory_id = ${input.factoryId}, name = ${input.name}, line_type = ${input.lineType},
+    SET factory_id = ${input.factoryId}, name = ${input.name}, product = ${input.product},
+        line_type = ${input.lineType},
         capacity_per_day = ${input.capacityPerDay}, work_hours = ${input.workHours},
         start_time = ${input.startTime}, headcount = ${input.headcount},
         note = ${input.note}, active = ${input.active}, sort_order = ${input.sortOrder}
@@ -171,18 +187,24 @@ export async function updateLine(id: string, input: LineInput): Promise<void> {
   await replaceBreaks(id, input.breaks);
 }
 
-/** マスタ一覧からの一括更新（ライン実力・稼働時間・備考だけを直す画面用）。 */
-export async function updateLineCapacity(
+/** マスタ表からの1行更新（器種・現状人員・ライン実力・稼働時間・備考）。 */
+export async function updateLineRow(
   id: string,
-  capacityPerDay: number,
-  workHours: number,
-  note: string | null
+  input: {
+    product: string | null;
+    headcount: number;
+    capacityPerDay: number;
+    workHours: number;
+    note: string | null;
+  }
 ): Promise<void> {
   await ensureSchema();
   const sql = getSql();
   await sql`
     UPDATE op_lines
-    SET capacity_per_day = ${capacityPerDay}, work_hours = ${workHours}, note = ${note}
+    SET product = ${input.product}, headcount = ${input.headcount},
+        capacity_per_day = ${input.capacityPerDay}, work_hours = ${input.workHours},
+        note = ${input.note}
     WHERE id = ${id}`;
 }
 

@@ -1,21 +1,25 @@
 import Link from "next/link";
-import { Lock, Unlock } from "lucide-react";
-import { requireAdminSession } from "@/lib/session";
-import { isMasterUnlocked, pinConfigured } from "@/lib/masterPin";
+import { Info } from "lucide-react";
+import { masterEditDepartments, requireAdminSession } from "@/lib/session";
 import { listFactories, listLines, listWorkers } from "@/lib/db";
 import {
   deleteFactoryAction,
   deleteLineAction,
   deleteWorkerAction,
-  lockMasterAction,
   saveCapacitiesAction,
   saveFactoryAction,
   saveLineAction,
   saveWorkerAction,
-  unlockMasterAction,
 } from "@/lib/actions";
 import { formatBreaks } from "@/lib/capacity";
-import { LINE_TYPE_LABEL, QTY_LABEL, type Factory, type Line, type Worker } from "@/lib/types";
+import {
+  LINE_TYPE_LABEL,
+  QTY_LABEL,
+  capacityPerManHour,
+  type Factory,
+  type Line,
+  type Worker,
+} from "@/lib/types";
 import PageHeader from "@/components/PageHeader";
 import DbErrorState from "@/components/DbErrorState";
 import SubmitButton from "@/components/SubmitButton";
@@ -23,7 +27,7 @@ import SubmitButton from "@/components/SubmitButton";
 export const dynamic = "force-dynamic";
 
 const TABS = [
-  { key: "capacity", label: "ライン実力" },
+  { key: "capacity", label: "工場・ラインマスター" },
   { key: "lines", label: "ライン設定" },
   { key: "factories", label: "工場" },
   { key: "workers", label: "作業者" },
@@ -36,20 +40,25 @@ const inputCls =
 const deleteCls =
   "rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-60";
 
+/** 小数は必要な桁だけ見せる（14 / 8.5 / 0.5 のように）。 */
+function num(v: number, digits = 1): string {
+  return Number(v.toFixed(digits)).toLocaleString("ja-JP");
+}
+
 /**
  * マスタ設定。
- * ライン実力（台/日）・稼働時間（H）は工場ごとに一覧で確認でき、編集は PIN の解除が必要。
+ * 工場・ラインマスターは全管理者が表で確認でき、編集できるのは生産管理部の管理者のみ。
  */
 export default async function MastersPage({
   searchParams,
 }: {
   searchParams: Promise<{ tab?: string }>;
 }) {
-  await requireAdminSession();
+  const session = await requireAdminSession();
   const sp = await searchParams;
   const tab: TabKey = TABS.some((t) => t.key === sp.tab) ? (sp.tab as TabKey) : "capacity";
-  const unlocked = await isMasterUnlocked();
-  const locked = !unlocked;
+  // 編集可否はページでもサーバーアクションでも判定する（画面はボタンを出さないだけ）
+  const canEdit = session.canEditMaster;
 
   let factories, lines, workers;
   try {
@@ -68,11 +77,18 @@ export default async function MastersPage({
     <div className="p-4 sm:p-6">
       <PageHeader title="マスタ設定" />
       <p className="mb-3 text-sm text-slate-600">
-        ライン実力（台/日）・稼働時間（H）を工場ごとに確認できます。
-        {pinConfigured() ? "編集するにはPINの入力が必要です。" : null}
+        工場ごとのラインと、生産能力（台/日）・総稼働時間（H）を確認できます。
       </p>
 
-      <PinBar locked={locked} configured={pinConfigured()} />
+      {!canEdit ? (
+        <div className="mb-4 flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+          <Info className="mt-px h-4 w-4 shrink-0" />
+          <span>
+            閲覧のみです。マスタを編集できるのは{masterEditDepartments().join("・")}
+            の管理者のみです。
+          </span>
+        </div>
+      ) : null}
 
       <nav className="mb-5 flex gap-1 border-b border-slate-200">
         {TABS.map((t) => (
@@ -91,78 +107,30 @@ export default async function MastersPage({
       </nav>
 
       {tab === "capacity" ? (
-        <CapacityTab factories={factories} lines={lines} locked={locked} />
+        <MasterTable factories={factories} lines={lines} canEdit={canEdit} />
       ) : null}
-      {tab === "lines" ? <LinesTab factories={factories} lines={lines} locked={locked} /> : null}
-      {tab === "factories" ? <FactoriesTab factories={factories} locked={locked} /> : null}
+      {tab === "lines" ? <LinesTab factories={factories} lines={lines} canEdit={canEdit} /> : null}
+      {tab === "factories" ? <FactoriesTab factories={factories} canEdit={canEdit} /> : null}
       {tab === "workers" ? (
-        <WorkersTab factories={factories} lines={lines} workers={workers} locked={locked} />
+        <WorkersTab factories={factories} lines={lines} workers={workers} canEdit={canEdit} />
       ) : null}
     </div>
   );
 }
 
-/* ===== PIN ロックの操作バー ===== */
+/* ===== 工場・ラインマスター（工場ごとの表） ===== */
 
-function PinBar({ locked, configured }: { locked: boolean; configured: boolean }) {
-  if (!configured) {
-    return (
-      <div className="mb-4 flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
-        <Unlock className="h-4 w-4" />
-        PIN（環境変数 MASTER_EDIT_PIN）が未設定のため、編集ロックは無効です。
-      </div>
-    );
-  }
-  if (locked) {
-    return (
-      <form action={unlockMasterAction} className="mb-4 flex flex-wrap items-center gap-2">
-        <span className="flex items-center gap-1.5 text-sm text-slate-600">
-          <Lock className="h-4 w-4" />
-          編集にはPINが必要です
-        </span>
-        <input
-          type="password"
-          name="pin"
-          placeholder="PIN"
-          autoComplete="off"
-          required
-          className="w-40 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
-        />
-        <SubmitButton
-          pendingLabel="確認中…"
-          className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-60"
-        >
-          解除
-        </SubmitButton>
-      </form>
-    );
-  }
-  return (
-    <form action={lockMasterAction} className="mb-4 flex flex-wrap items-center gap-2">
-      <span className="flex items-center gap-1.5 text-sm text-emerald-700">
-        <Unlock className="h-4 w-4" />
-        編集できます（2時間で自動的にロックされます）
-      </span>
-      <SubmitButton
-        pendingLabel="処理中…"
-        className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
-      >
-        ロックする
-      </SubmitButton>
-    </form>
-  );
-}
+const TH = "px-3 py-2 text-left text-xs font-semibold text-slate-600 whitespace-nowrap";
+const TD = "px-3 py-2 text-sm text-slate-800 align-middle";
 
-/* ===== ライン実力（工場ごとの一覧） ===== */
-
-function CapacityTab({
+function MasterTable({
   factories,
   lines,
-  locked,
+  canEdit,
 }: {
   factories: Factory[];
   lines: Line[];
-  locked: boolean;
+  canEdit: boolean;
 }) {
   if (factories.length === 0) {
     return (
@@ -176,73 +144,179 @@ function CapacityTab({
     );
   }
   return (
-    <div className="space-y-5">
-      {factories.map((f) => {
-        const group = lines.filter((l) => l.factoryId === f.id);
-        return (
-          <section key={f.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-            <h2 className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-900">
-              {f.name}
-            </h2>
-            {group.length === 0 ? (
-              <p className="px-4 py-6 text-center text-sm text-slate-500">
-                この工場のラインが登録されていません。
-              </p>
-            ) : (
-              <form action={saveCapacitiesAction}>
-                <ul className="divide-y divide-slate-100">
-                  {group.map((l) => {
-                    const unit = QTY_LABEL[l.lineType].unit;
-                    return (
-                      <li key={l.id} className="flex flex-wrap items-center gap-2 px-4 py-3">
-                        <input type="hidden" name="lineId" value={l.id} />
-                        <span className="w-14 shrink-0 font-bold text-slate-900">{l.name}</span>
-                        <input
-                          type="number"
-                          name={`capacity_${l.id}`}
-                          defaultValue={l.capacityPerDay || ""}
-                          min={0}
-                          step={1}
-                          placeholder={`${unit}/日`}
-                          disabled={locked}
-                          className={`${inputCls} w-28 tabular-nums`}
-                        />
-                        <span className="text-xs text-slate-500">{unit}/日</span>
-                        <input
-                          type="number"
-                          name={`hours_${l.id}`}
-                          defaultValue={l.workHours || ""}
-                          min={0}
-                          step={0.5}
-                          placeholder="H"
-                          disabled={locked}
-                          className={`${inputCls} w-20 tabular-nums`}
-                        />
-                        <span className="text-xs text-slate-500">H稼働</span>
-                        <input
-                          type="text"
-                          name={`note_${l.id}`}
-                          defaultValue={l.note ?? ""}
-                          maxLength={200}
-                          placeholder="備考（任意）"
-                          disabled={locked}
-                          className={`${inputCls} min-w-[12rem] flex-1`}
-                        />
-                      </li>
-                    );
-                  })}
-                </ul>
-                {!locked ? (
-                  <div className="border-t border-slate-100 px-4 py-3">
-                    <SubmitButton>{f.name}の実力を保存</SubmitButton>
-                  </div>
-                ) : null}
-              </form>
-            )}
-          </section>
-        );
-      })}
+    <div className="space-y-6">
+      {factories.map((f) => (
+        <FactoryTable
+          key={f.id}
+          factory={f}
+          lines={lines.filter((l) => l.factoryId === f.id)}
+          canEdit={canEdit}
+        />
+      ))}
+      <p className="text-xs text-slate-500">
+        一人当たり時間出来高＝生産能力 ÷（現状人員 × 総稼働時間）。マスタ上の目安で、実績値は
+        <Link href="/summary" className="mx-1 text-brand-700 underline">
+          集計
+        </Link>
+        で確認できます。
+      </p>
     </div>
+  );
+}
+
+function FactoryTable({
+  factory,
+  lines,
+  canEdit,
+}: {
+  factory: Factory;
+  lines: Line[];
+  canEdit: boolean;
+}) {
+  const body = (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[52rem] border-collapse">
+        <thead className="bg-slate-50">
+          <tr className="border-b border-slate-200">
+            <th className={`${TH} w-20`}>ライン</th>
+            <th className={TH}>器種</th>
+            <th className={`${TH} w-24`}>種別</th>
+            <th className={`${TH} w-24 text-right`}>現状人員</th>
+            <th className={`${TH} w-32 text-right`}>生産能力</th>
+            <th className={`${TH} w-28 text-right`}>総稼働時間</th>
+            <th className={`${TH} w-32 text-right`}>一人当たり</th>
+            <th className={TH}>備考</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {lines.map((l) => {
+            const unit = QTY_LABEL[l.lineType].unit;
+            const perManHour = capacityPerManHour(l);
+            return (
+              <tr key={l.id} className={l.active ? "" : "bg-slate-50/60 text-slate-400"}>
+                <td className={`${TD} font-bold text-slate-900`}>
+                  {l.name}
+                  {!l.active ? (
+                    <span className="ml-1 text-[10px] font-normal text-slate-400">停止中</span>
+                  ) : null}
+                </td>
+                <td className={TD}>
+                  {canEdit ? (
+                    <>
+                      <input type="hidden" name="lineId" value={l.id} />
+                      <input
+                        type="text"
+                        name={`product_${l.id}`}
+                        defaultValue={l.product ?? ""}
+                        maxLength={60}
+                        placeholder="器種"
+                        className={`${inputCls} w-full min-w-[10rem]`}
+                      />
+                    </>
+                  ) : (
+                    (l.product ?? "—")
+                  )}
+                </td>
+                <td className={`${TD} text-xs text-slate-500`}>{LINE_TYPE_LABEL[l.lineType]}</td>
+                <td className={`${TD} text-right tabular-nums`}>
+                  {canEdit ? (
+                    <input
+                      type="number"
+                      name={`headcount_${l.id}`}
+                      defaultValue={l.headcount || ""}
+                      min={0}
+                      step={0.5}
+                      className={`${inputCls} w-20 text-right tabular-nums`}
+                    />
+                  ) : (
+                    <>{l.headcount ? `${num(l.headcount)}人` : "—"}</>
+                  )}
+                </td>
+                <td className={`${TD} text-right tabular-nums`}>
+                  {canEdit ? (
+                    <span className="flex items-center justify-end gap-1">
+                      <input
+                        type="number"
+                        name={`capacity_${l.id}`}
+                        defaultValue={l.capacityPerDay || ""}
+                        min={0}
+                        step={1}
+                        className={`${inputCls} w-24 text-right tabular-nums`}
+                      />
+                      <span className="text-xs text-slate-500">{unit}/日</span>
+                    </span>
+                  ) : (
+                    <>{l.capacityPerDay ? `${num(l.capacityPerDay, 0)}${unit}/日` : "—"}</>
+                  )}
+                </td>
+                <td className={`${TD} text-right tabular-nums`}>
+                  {canEdit ? (
+                    <span className="flex items-center justify-end gap-1">
+                      <input
+                        type="number"
+                        name={`hours_${l.id}`}
+                        defaultValue={l.workHours || ""}
+                        min={0}
+                        step={0.5}
+                        className={`${inputCls} w-20 text-right tabular-nums`}
+                      />
+                      <span className="text-xs text-slate-500">H</span>
+                    </span>
+                  ) : (
+                    <>{l.workHours ? `${num(l.workHours)}H` : "—"}</>
+                  )}
+                </td>
+                <td className={`${TD} text-right tabular-nums text-slate-600`}>
+                  {perManHour === null ? "—" : `${num(perManHour, 2)} ${unit}/人・H`}
+                </td>
+                <td className={TD}>
+                  {canEdit ? (
+                    <input
+                      type="text"
+                      name={`note_${l.id}`}
+                      defaultValue={l.note ?? ""}
+                      maxLength={200}
+                      placeholder="備考（任意）"
+                      className={`${inputCls} w-full min-w-[12rem]`}
+                    />
+                  ) : (
+                    <span className="text-xs text-slate-500">{l.note ?? ""}</span>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  return (
+    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+      <h2 className="flex items-baseline gap-2 border-b border-slate-200 bg-brand-50 px-4 py-3">
+        {factory.code ? (
+          <span className="rounded bg-brand-200 px-1.5 py-0.5 font-mono text-xs font-bold text-brand-900">
+            {factory.code}
+          </span>
+        ) : null}
+        <span className="text-sm font-bold text-slate-900">{factory.name}</span>
+        <span className="text-xs text-slate-500">{lines.length}ライン</span>
+      </h2>
+      {lines.length === 0 ? (
+        <p className="px-4 py-6 text-center text-sm text-slate-500">
+          この工場のラインが登録されていません。
+        </p>
+      ) : canEdit ? (
+        <form action={saveCapacitiesAction}>
+          {body}
+          <div className="border-t border-slate-100 px-4 py-3">
+            <SubmitButton>{factory.name}を保存</SubmitButton>
+          </div>
+        </form>
+      ) : (
+        body
+      )}
+    </section>
   );
 }
 
@@ -251,12 +325,13 @@ function CapacityTab({
 function LineFields({
   factories,
   line,
-  locked,
+  canEdit,
 }: {
   factories: Factory[];
   line?: Line;
-  locked: boolean;
+  canEdit: boolean;
 }) {
+  const disabled = !canEdit;
   return (
     <>
       <Field label="工場">
@@ -264,7 +339,7 @@ function LineFields({
           name="factoryId"
           defaultValue={line?.factoryId ?? factories[0]?.id ?? ""}
           required
-          disabled={locked}
+          disabled={disabled}
           className={`${inputCls} w-36`}
         >
           {factories.map((f) => (
@@ -282,41 +357,52 @@ function LineFields({
           required
           maxLength={60}
           placeholder="#1"
-          disabled={locked}
+          disabled={disabled}
           className={`${inputCls} w-28`}
+        />
+      </Field>
+      <Field label="器種">
+        <input
+          type="text"
+          name="product"
+          defaultValue={line?.product ?? ""}
+          maxLength={60}
+          placeholder="片面ホーロー"
+          disabled={disabled}
+          className={`${inputCls} w-44`}
         />
       </Field>
       <Field label="種別">
         <select
           name="lineType"
           defaultValue={line?.lineType ?? "assembly"}
-          disabled={locked}
+          disabled={disabled}
           className={`${inputCls} w-32`}
         >
           <option value="assembly">{LINE_TYPE_LABEL.assembly}</option>
           <option value="process">{LINE_TYPE_LABEL.process}</option>
         </select>
       </Field>
-      <Field label="ライン実力/日">
+      <Field label="生産能力/日">
         <input
           type="number"
           name="capacityPerDay"
           min={0}
           step={1}
           defaultValue={line?.capacityPerDay ?? 0}
-          disabled={locked}
+          disabled={disabled}
           className={`${inputCls} w-24 text-right tabular-nums`}
         />
       </Field>
-      <Field label="稼働(H)">
+      <Field label="総稼働時間(H)">
         <input
           type="number"
           name="workHours"
           min={0}
           step={0.5}
           defaultValue={line?.workHours ?? 8}
-          disabled={locked}
-          className={`${inputCls} w-20 text-right tabular-nums`}
+          disabled={disabled}
+          className={`${inputCls} w-24 text-right tabular-nums`}
         />
       </Field>
       <Field label="始業">
@@ -324,7 +410,7 @@ function LineFields({
           type="time"
           name="startTime"
           defaultValue={line?.startTime ?? "08:00"}
-          disabled={locked}
+          disabled={disabled}
           className={`${inputCls} w-28`}
         />
       </Field>
@@ -334,18 +420,18 @@ function LineFields({
           name="breaks"
           defaultValue={line ? formatBreaks(line.breaks) : "10:00-10:10／12:10-12:50／14:50-15:00"}
           placeholder="10:00-10:10／12:10-12:50"
-          disabled={locked}
+          disabled={disabled}
           className={`${inputCls} w-64`}
         />
       </Field>
-      <Field label="標準人数">
+      <Field label="現状人員">
         <input
           type="number"
           name="headcount"
           min={0}
           step={0.5}
           defaultValue={line?.headcount ?? 0}
-          disabled={locked}
+          disabled={disabled}
           className={`${inputCls} w-20 text-right tabular-nums`}
         />
       </Field>
@@ -354,7 +440,7 @@ function LineFields({
           type="number"
           name="sortOrder"
           defaultValue={line?.sortOrder ?? 0}
-          disabled={locked}
+          disabled={disabled}
           className={`${inputCls} w-20 text-right tabular-nums`}
         />
       </Field>
@@ -364,7 +450,7 @@ function LineFields({
           name="note"
           defaultValue={line?.note ?? ""}
           maxLength={200}
-          disabled={locked}
+          disabled={disabled}
           className={`${inputCls} w-48`}
         />
       </Field>
@@ -373,7 +459,7 @@ function LineFields({
           type="checkbox"
           name="active"
           defaultChecked={line?.active ?? true}
-          disabled={locked}
+          disabled={disabled}
           className="h-4 w-4 rounded border-slate-300 text-brand-700 focus:ring-brand-600"
         />
         稼働中
@@ -385,11 +471,11 @@ function LineFields({
 function LinesTab({
   factories,
   lines,
-  locked,
+  canEdit,
 }: {
   factories: Factory[];
   lines: Line[];
-  locked: boolean;
+  canEdit: boolean;
 }) {
   if (factories.length === 0) {
     return (
@@ -404,15 +490,15 @@ function LinesTab({
   }
   return (
     <div className="space-y-4">
-      {!locked ? (
+      {canEdit ? (
         <section className="rounded-xl border border-slate-200 bg-white p-4">
           <h2 className="mb-3 text-sm font-semibold text-slate-900">ラインを追加</h2>
           <form action={saveLineAction} className="flex flex-wrap items-end gap-3">
-            <LineFields factories={factories} locked={false} />
+            <LineFields factories={factories} canEdit />
             <SubmitButton>追加</SubmitButton>
           </form>
           <p className="mt-2 text-xs text-slate-500">
-            組立ラインは「ライン実力に対して時間当たりで間に合っているか」、前工程は「決められた時刻までに計画された製造指図が消化できているか」を追います。休憩は理論値の計算から差し引かれます。
+            組立ラインは「生産能力に対して時間当たりで間に合っているか」、前工程は「決められた時刻までに計画された製造指図が消化できているか」を追います。休憩は理論値の計算から差し引かれます。
           </p>
         </section>
       ) : null}
@@ -425,10 +511,10 @@ function LinesTab({
             <li key={l.id} className="rounded-xl border border-slate-200 bg-white p-3">
               <form action={saveLineAction} className="flex flex-wrap items-end gap-3">
                 <input type="hidden" name="id" value={l.id} />
-                <LineFields factories={factories} line={l} locked={locked} />
-                {!locked ? <SubmitButton>更新</SubmitButton> : null}
+                <LineFields factories={factories} line={l} canEdit={canEdit} />
+                {canEdit ? <SubmitButton>更新</SubmitButton> : null}
               </form>
-              {!locked ? (
+              {canEdit ? (
                 <form action={deleteLineAction} className="mt-2">
                   <input type="hidden" name="id" value={l.id} />
                   <SubmitButton
@@ -450,13 +536,22 @@ function LinesTab({
 
 /* ===== 工場 ===== */
 
-function FactoriesTab({ factories, locked }: { factories: Factory[]; locked: boolean }) {
+function FactoriesTab({ factories, canEdit }: { factories: Factory[]; canEdit: boolean }) {
   return (
     <div className="space-y-4">
-      {!locked ? (
+      {canEdit ? (
         <section className="rounded-xl border border-slate-200 bg-white p-4">
           <h2 className="mb-3 text-sm font-semibold text-slate-900">工場を追加</h2>
           <form action={saveFactoryAction} className="flex flex-wrap items-end gap-3">
+            <Field label="工場コード">
+              <input
+                type="text"
+                name="code"
+                maxLength={8}
+                placeholder="02"
+                className={`${inputCls} w-24`}
+              />
+            </Field>
             <Field label="工場名">
               <input type="text" name="name" required maxLength={60} className={`${inputCls} w-56`} />
             </Field>
@@ -481,6 +576,16 @@ function FactoriesTab({ factories, locked }: { factories: Factory[]; locked: boo
             <li key={f.id} className="rounded-xl border border-slate-200 bg-white p-3">
               <form action={saveFactoryAction} className="flex flex-wrap items-end gap-3">
                 <input type="hidden" name="id" value={f.id} />
+                <Field label="工場コード">
+                  <input
+                    type="text"
+                    name="code"
+                    defaultValue={f.code ?? ""}
+                    maxLength={8}
+                    disabled={!canEdit}
+                    className={`${inputCls} w-24`}
+                  />
+                </Field>
                 <Field label="工場名">
                   <input
                     type="text"
@@ -488,7 +593,7 @@ function FactoriesTab({ factories, locked }: { factories: Factory[]; locked: boo
                     defaultValue={f.name}
                     required
                     maxLength={60}
-                    disabled={locked}
+                    disabled={!canEdit}
                     className={`${inputCls} w-56`}
                   />
                 </Field>
@@ -497,13 +602,13 @@ function FactoriesTab({ factories, locked }: { factories: Factory[]; locked: boo
                     type="number"
                     name="sortOrder"
                     defaultValue={f.sortOrder}
-                    disabled={locked}
+                    disabled={!canEdit}
                     className={`${inputCls} w-24 text-right tabular-nums`}
                   />
                 </Field>
-                {!locked ? <SubmitButton>更新</SubmitButton> : null}
+                {canEdit ? <SubmitButton>更新</SubmitButton> : null}
               </form>
-              {!locked ? (
+              {canEdit ? (
                 <form action={deleteFactoryAction} className="mt-2">
                   <input type="hidden" name="id" value={f.id} />
                   <SubmitButton
@@ -529,13 +634,14 @@ function WorkerFields({
   factories,
   lines,
   worker,
-  locked,
+  canEdit,
 }: {
   factories: Factory[];
   lines: Line[];
   worker?: Worker;
-  locked: boolean;
+  canEdit: boolean;
 }) {
+  const disabled = !canEdit;
   return (
     <>
       <Field label="工場">
@@ -543,7 +649,7 @@ function WorkerFields({
           name="factoryId"
           defaultValue={worker?.factoryId ?? factories[0]?.id ?? ""}
           required
-          disabled={locked}
+          disabled={disabled}
           className={`${inputCls} w-36`}
         >
           {factories.map((f) => (
@@ -557,7 +663,7 @@ function WorkerFields({
         <select
           name="lineId"
           defaultValue={worker?.lineId ?? ""}
-          disabled={locked}
+          disabled={disabled}
           className={`${inputCls} w-48`}
         >
           <option value="">未設定</option>
@@ -575,7 +681,7 @@ function WorkerFields({
           defaultValue={worker?.employeeNo ?? ""}
           required
           maxLength={32}
-          disabled={locked}
+          disabled={disabled}
           className={`${inputCls} w-32`}
         />
       </Field>
@@ -586,7 +692,7 @@ function WorkerFields({
           defaultValue={worker?.name ?? ""}
           required
           maxLength={60}
-          disabled={locked}
+          disabled={disabled}
           className={`${inputCls} w-40`}
         />
       </Field>
@@ -595,7 +701,7 @@ function WorkerFields({
           type="checkbox"
           name="active"
           defaultChecked={worker?.active ?? true}
-          disabled={locked}
+          disabled={disabled}
           className="h-4 w-4 rounded border-slate-300 text-brand-700 focus:ring-brand-600"
         />
         在籍
@@ -608,12 +714,12 @@ function WorkersTab({
   factories,
   lines,
   workers,
-  locked,
+  canEdit,
 }: {
   factories: Factory[];
   lines: Line[];
   workers: Worker[];
-  locked: boolean;
+  canEdit: boolean;
 }) {
   if (factories.length === 0) {
     return (
@@ -628,11 +734,11 @@ function WorkersTab({
   }
   return (
     <div className="space-y-4">
-      {!locked ? (
+      {canEdit ? (
         <section className="rounded-xl border border-slate-200 bg-white p-4">
           <h2 className="mb-3 text-sm font-semibold text-slate-900">作業者を追加</h2>
           <form action={saveWorkerAction} className="flex flex-wrap items-end gap-3">
-            <WorkerFields factories={factories} lines={lines} locked={false} />
+            <WorkerFields factories={factories} lines={lines} canEdit />
             <SubmitButton>追加</SubmitButton>
           </form>
           <p className="mt-2 text-xs text-slate-500">
@@ -649,10 +755,10 @@ function WorkersTab({
             <li key={w.id} className="rounded-xl border border-slate-200 bg-white p-3">
               <form action={saveWorkerAction} className="flex flex-wrap items-end gap-3">
                 <input type="hidden" name="id" value={w.id} />
-                <WorkerFields factories={factories} lines={lines} worker={w} locked={locked} />
-                {!locked ? <SubmitButton>更新</SubmitButton> : null}
+                <WorkerFields factories={factories} lines={lines} worker={w} canEdit={canEdit} />
+                {canEdit ? <SubmitButton>更新</SubmitButton> : null}
               </form>
-              {!locked ? (
+              {canEdit ? (
                 <form action={deleteWorkerAction} className="mt-2">
                   <input type="hidden" name="id" value={w.id} />
                   <SubmitButton

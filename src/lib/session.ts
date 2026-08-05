@@ -10,6 +10,28 @@ export interface AppSession {
   userName: string;
   /** 所属工場（ポータル連携値）。表示の初期値に使うだけで、閲覧範囲は絞らない */
   factory: string | null;
+  /** 所属部署（ポータル連携値）。マスタ編集の可否判定に使う */
+  department: string | null;
+  /** マスタ（工場・ライン・作業者）を編集できるか */
+  canEditMaster: boolean;
+}
+
+/**
+ * マスタを編集できる部署。
+ * 既定は「生産管理部」。環境変数 MASTER_EDIT_DEPARTMENTS でカンマ区切りで変更できる。
+ */
+export function masterEditDepartments(): string[] {
+  const raw = (process.env.MASTER_EDIT_DEPARTMENTS ?? "生産管理部").trim();
+  return raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/** その部署がマスタを編集できるか（部署未連携のユーザーは編集不可）。 */
+function canEditMaster(department: string | null): boolean {
+  if (!department) return false;
+  return masterEditDepartments().includes(department);
 }
 
 /**
@@ -44,7 +66,24 @@ export async function requireAdminSession(): Promise<AppSession> {
     loginId: user.loginId,
     userName: user.name,
     factory: user.factory,
+    department: user.department,
+    canEditMaster: canEditMaster(user.department),
   };
+}
+
+/**
+ * マスタの編集を要求する（マスタ系 Server Action の入口）。
+ * 管理者であることに加えて、所属部署が編集可能な部署（既定：生産管理部）であること。
+ * 画面側でもボタンを出さないが、サーバー側でも必ず防ぐ。
+ */
+export async function requireMasterEditor(): Promise<AppSession> {
+  const s = await requireAdminSession();
+  if (!s.canEditMaster) {
+    throw new Error(
+      `マスタを編集できるのは${masterEditDepartments().join("・")}の管理者のみです`
+    );
+  }
+  return s;
 }
 
 /** リダイレクトせず null を返す版（API route で 401 を返したいとき用）。 */
@@ -58,5 +97,7 @@ export async function getAdminSession(): Promise<AppSession | null> {
     loginId: user.loginId,
     userName: user.name,
     factory: user.factory,
+    department: user.department,
+    canEditMaster: canEditMaster(user.department),
   };
 }

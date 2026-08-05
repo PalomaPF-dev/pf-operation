@@ -48,7 +48,7 @@
 | `/report` | 進捗・残業の入力。日付／工場／ラインを選ぶと理論値を自動計算し、実績・生産進捗・残業の要否（実施なら対象者と時間）まで登録 |
 | `/reports` | 報告履歴。期間・工場・ライン・生産進捗・残業の要否で絞り込み |
 | `/summary` | 集計。工場／ライン別の残業工数・達成率・一人当たり出来高、作業者別の残業時間。CSV出力あり |
-| `/masters` | マスタ設定（ライン実力／ライン設定／工場／作業者）。**編集は PIN で保護** |
+| `/masters` | マスタ設定（工場・ラインマスター／ライン設定／工場／作業者）。工場ごとの表で確認でき、**編集は生産管理部の管理者のみ** |
 
 ### 入力画面の項目
 
@@ -74,7 +74,9 @@
 - ログイン経路は**ポータル SSO のみ**。アプリ単独のパスワードは持たない。
 - ポータルの役割が `admin`（管理者）のユーザーだけがセッションを得られる。`member` は `/api/sso` で弾く。
 - 権限を外された直後も入れないよう、ページ・Server Action ごとに DB の役割を都度確認する（JWT の値は信用しない）。
-- マスタ編集は環境変数 `MASTER_EDIT_PIN` で保護（解除は 2 時間有効の HttpOnly cookie）。未設定ならロックは無効。
+- マスタ（工場・ライン・作業者）の**閲覧は全管理者**、**編集は生産管理部の管理者のみ**。
+  対象部署は環境変数 `MASTER_EDIT_DEPARTMENTS`（カンマ区切り、既定「生産管理部」）で変えられる。
+  部署はポータル SSO から連携され、判定は画面・Server Action の両方で行う。
 
 詳細は [`docs/portal-integration.md`](docs/portal-integration.md)。
 
@@ -87,9 +89,9 @@
 # ポータル登録前のログインリンクを発行する（60秒有効）
 export PF_PROVISION_KEY='xxxx'
 node scripts/make-sso-link.mjs \
-  --url https://operation.paloma-pf.com --login-id 12345 --name "山田 太郎"
+  --url https://operation.paloma-pf.com --login-id 12345 --name "山田 太郎" --department 生産管理部
 
-# 画面サンプルの清洲工場のライン実力を投入する（冪等）
+# 工場・ラインマスター（4工場33ライン）を投入する（冪等）
 export DATABASE_URL='postgresql://ユーザー:パスワード@ホスト/DB名?sslmode=require'
 node scripts/seed.mjs --with-sample-workers
 ```

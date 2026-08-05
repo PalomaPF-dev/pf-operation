@@ -69,6 +69,8 @@ export async function POST(req: Request) {
         email: typeof u?.email === "string" ? u.email.trim() : null,
         role: u?.role === "admin" ? "admin" : "member",
         factory: typeof u?.factory === "string" ? u.factory.trim() : null,
+        // 所属部署。マスタを編集できるかの判定に使う（ポータルが送らなければ SSO 時に補われる）
+        department: typeof u?.department === "string" ? u.department.trim() : null,
       });
       results.push({ loginId, status: created ? "created" : "exists", passwordSet: true });
     } catch (e) {
