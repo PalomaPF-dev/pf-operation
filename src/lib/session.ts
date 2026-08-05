@@ -1,5 +1,6 @@
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
+import type { Session } from "next-auth";
 import { authOptions } from "./authOptions";
 import { findUserById } from "./authDb";
 
@@ -12,6 +13,19 @@ export interface AppSession {
 }
 
 /**
+ * セッションを読む。設定不備（NEXTAUTH_SECRET 未設定など）で next-auth が例外を投げたときは、
+ * 素の 500 を返さずに configError として扱い、ログイン画面で理由を案内する。
+ */
+async function readSession(): Promise<{ session: Session | null; configError: boolean }> {
+  try {
+    return { session: await getServerSession(authOptions), configError: false };
+  } catch (e) {
+    console.error("[session] getServerSession failed:", e);
+    return { session: null, configError: true };
+  }
+}
+
+/**
  * 管理者セッションを要求する（このアプリの全ページ・全 Server Action の入口）。
  *
  * 進捗管理は「管理者だけが使うアプリ」。ポータルの役割（role）が admin のユーザー以外は
@@ -19,7 +33,8 @@ export interface AppSession {
  * ここで毎回 DB の role を確認する（JWT の値は信用しない）。
  */
 export async function requireAdminSession(): Promise<AppSession> {
-  const session = await getServerSession(authOptions);
+  const { session, configError } = await readSession();
+  if (configError) redirect("/login?error=config");
   if (!session?.user?.id) redirect("/login");
   const user = await findUserById(session.user.id);
   if (!user) redirect("/login?error=account");
@@ -34,7 +49,7 @@ export async function requireAdminSession(): Promise<AppSession> {
 
 /** リダイレクトせず null を返す版（API route で 401 を返したいとき用）。 */
 export async function getAdminSession(): Promise<AppSession | null> {
-  const session = await getServerSession(authOptions);
+  const { session } = await readSession();
   if (!session?.user?.id) return null;
   const user = await findUserById(session.user.id);
   if (!user || user.role !== "admin") return null;
