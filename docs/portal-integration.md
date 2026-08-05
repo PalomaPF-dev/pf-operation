@@ -18,7 +18,7 @@ PF進捗管理を PFシリーズの1アプリとして組み込むために必�
 | `NEXTAUTH_SECRET` | next-auth のセッション署名鍵 |
 | `NEXTAUTH_URL` | `https://operation.paloma-pf.com` |
 | `PF_PROVISION_KEY` | ポータルと共有する鍵。SSO トークン検証と `/api/provision` の認証に使う。**ポータル側と同じ値** |
-| `MASTER_EDIT_DEPARTMENTS` | マスタを編集できる部署（カンマ区切り）。未設定なら `生産管理部` |
+| `MASTER_EDIT_DEPARTMENTS` | マスタを編集できる部署（カンマ区切り）。未設定なら `生産管理部`。ポータル管理者は部署によらず編集できる |
 
 ## ポータル側に必要な変更（このリポジトリの変更ではない）
 
@@ -48,7 +48,8 @@ PF進捗管理を PFシリーズの1アプリとして組み込むために必�
 
 ```
 ポータル /api/user?launch=operation
-  → 署名トークン（loginId / name / role / department / app / exp、TTL 60秒、HMAC-SHA256 = PF_PROVISION_KEY）
+  → 署名トークン（loginId / name / role / department / canManage / app / exp、
+     TTL 60秒、HMAC-SHA256 = PF_PROVISION_KEY）
   → 302 https://operation.paloma-pf.com/api/sso?token=...
       ├ 署名・app・期限を検証
       ├ op_users に upsert（氏名・役割・所属工場・所属部署はポータルを正として毎回上書き）
@@ -58,10 +59,17 @@ PF進捗管理を PFシリーズの1アプリとして組み込むために必�
 
 トークンに `factory`（所属工場名）が含まれていれば取り込む。無くても動作する（表示の初期値に使うだけ）。
 
-`department`（所属部署名）は**マスタ編集の可否**に使う。`MASTER_EDIT_DEPARTMENTS`（既定「生産管理部」）に
-含まれる部署の管理者だけが、工場・ライン・作業者のマスタを編集できる（他の管理者は閲覧のみ）。
-ポータル側は `api/user.js` の launch トークンに `department: profile.departmentName` を含めること。
-部署が送られてこない（`null`）ユーザーは閲覧のみになる。
+`department`（所属部署名）と `canManage`（ポータル管理権限）は**マスタ編集の可否**に使う。
+
+| 条件 | マスタ |
+| --- | --- |
+| `canManage: true`（ポータル管理者） | 部署によらず**編集できる** |
+| 所属部署が `MASTER_EDIT_DEPARTMENTS`（既定「生産管理部」）に含まれる | 編集できる |
+| それ以外の管理者 | 閲覧のみ |
+
+ポータル側は `api/user.js` の launch トークンに `department: profile.departmentName` と
+`canManage: profile.canManage === true` を含めること。どちらも送られてこないユーザーは閲覧のみになる。
+`canManage` は SSO で受け取った値を `op_users.portal_admin` に保持し、判定は毎回 DB から引き直す。
 
 ## プロビジョニング API
 

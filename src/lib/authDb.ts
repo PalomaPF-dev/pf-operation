@@ -13,6 +13,8 @@ export interface AppUser {
   factory: string | null;
   /** ポータルの所属部署名。マスタを編集できる部署かどうかの判定に使う */
   department: string | null;
+  /** ポータルの管理権限（can_manage）。部署によらずマスタを編集できる */
+  portalAdmin: boolean;
 }
 
 function toRole(v: unknown): UserRole {
@@ -28,6 +30,7 @@ function toUser(row: Record<string, unknown>): AppUser {
     role: toRole(row.role),
     factory: (row.factory as string | null) ?? null,
     department: (row.department as string | null) ?? null,
+    portalAdmin: row.portal_admin === true,
   };
 }
 
@@ -36,7 +39,7 @@ export async function findUserByLoginId(loginId: string): Promise<AppUser | null
   await ensureSchema();
   const sql = getSql();
   const rows = await sql`
-    SELECT id, login_id, name, email, role, factory, department
+    SELECT id, login_id, name, email, role, factory, department, portal_admin
     FROM op_users WHERE login_id = ${loginId} LIMIT 1`;
   return rows[0] ? toUser(rows[0] as Record<string, unknown>) : null;
 }
@@ -46,7 +49,7 @@ export async function findUserById(id: string): Promise<AppUser | null> {
   await ensureSchema();
   const sql = getSql();
   const rows = await sql`
-    SELECT id, login_id, name, email, role, factory, department
+    SELECT id, login_id, name, email, role, factory, department, portal_admin
     FROM op_users WHERE id = ${id} LIMIT 1`;
   return rows[0] ? toUser(rows[0] as Record<string, unknown>) : null;
 }
@@ -58,6 +61,8 @@ export interface PortalUserInput {
   role?: UserRole;
   factory?: string | null;
   department?: string | null;
+  /** ポータルの管理権限。null（未指定）なら既存値を保つ */
+  portalAdmin?: boolean | null;
 }
 
 /**
@@ -71,18 +76,23 @@ export async function upsertPortalUser(
   await ensureSchema();
   const sql = getSql();
   const role = toRole(input.role);
+  // portalAdmin は「送られてこなければ現状維持」。null を渡して COALESCE で既存値に落とす
+  // （provision API はこの値を持たないため、SSO で立った権限を消さないようにする）。
+  const portalAdmin = input.portalAdmin ?? null;
   const rows = await sql`
-    INSERT INTO op_users (login_id, name, email, role, factory, department)
+    INSERT INTO op_users (login_id, name, email, role, factory, department, portal_admin)
     VALUES (${input.loginId}, ${input.name}, ${input.email ?? null}, ${role},
-            ${input.factory ?? null}, ${input.department ?? null})
+            ${input.factory ?? null}, ${input.department ?? null},
+            COALESCE(${portalAdmin}::boolean, false))
     ON CONFLICT (login_id) DO UPDATE SET
-      name       = EXCLUDED.name,
-      email      = COALESCE(EXCLUDED.email, op_users.email),
-      role       = EXCLUDED.role,
-      factory    = COALESCE(EXCLUDED.factory, op_users.factory),
-      department = COALESCE(EXCLUDED.department, op_users.department),
-      updated_at = now()
-    RETURNING id, login_id, name, email, role, factory, department, (xmax = 0) AS inserted`;
+      name         = EXCLUDED.name,
+      email        = COALESCE(EXCLUDED.email, op_users.email),
+      role         = EXCLUDED.role,
+      factory      = COALESCE(EXCLUDED.factory, op_users.factory),
+      department   = COALESCE(EXCLUDED.department, op_users.department),
+      portal_admin = COALESCE(${portalAdmin}::boolean, op_users.portal_admin),
+      updated_at   = now()
+    RETURNING id, login_id, name, email, role, factory, department, portal_admin, (xmax = 0) AS inserted`;
   const row = rows[0] as Record<string, unknown>;
   return { user: toUser(row), created: row.inserted === true };
 }

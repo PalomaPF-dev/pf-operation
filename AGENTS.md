@@ -12,8 +12,9 @@ Notably in this repo: the `middleware` file convention is deprecated and renamed
   `requireAdminSession()` を通し、役割は JWT ではなく DB から都度確認する。
 - 画面から渡された値（ライン種別・理論値など）を信用しない。前工程の理由必須のような業務ルールと理論値は、
   サーバー側で DB のマスタを引き直して判定・再計算する（`src/lib/actions.ts` の `saveReportAction`）。
-- マスタの編集系 Server Action は `requireMasterEditor()` を通す（管理者かつ生産管理部＝`MASTER_EDIT_DEPARTMENTS`）。
-  部署はポータル SSO 由来の値を DB に持ち、判定は毎回 DB から引き直す。
+- マスタの編集系 Server Action は `requireMasterEditor()` を通す（管理者かつ、生産管理部＝
+  `MASTER_EDIT_DEPARTMENTS` またはポータル管理権限あり）。部署・管理権限はポータル SSO 由来の値を
+  DB に持ち、判定は毎回 DB から引き直す。
 - スキーマは `src/lib/schema.ts` の `ensureSchema()` に冪等な DDL として足す。マイグレーションファイルは持たない。
 - 日付・時刻の表示は JST 固定（`src/lib/format.ts`）。DB には `date` / `time` で持つ。
 - 実績は「その時刻までの累計」で記録する。合計ではなく**最後の報告値**を使うこと（集計クエリ参照）。
