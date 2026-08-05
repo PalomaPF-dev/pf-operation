@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Info } from "lucide-react";
+import { Building2, Factory as FactoryIcon, Info, SlidersHorizontal, UserCog, Users } from "lucide-react";
 import { masterEditDepartments, requireAdminSession } from "@/lib/session";
 import { listAppUsers, listFactories, listLines, listWorkers, type AppUserRow } from "@/lib/db";
 import {
@@ -29,11 +29,11 @@ import SubmitButton from "@/components/SubmitButton";
 export const dynamic = "force-dynamic";
 
 const TABS = [
-  { key: "capacity", label: "工場・ラインマスター" },
-  { key: "lines", label: "ライン設定" },
-  { key: "factories", label: "工場" },
-  { key: "workers", label: "作業者" },
-  { key: "users", label: "利用者・上長" },
+  { key: "capacity", label: "工場・ラインマスター", icon: FactoryIcon },
+  { key: "lines", label: "ライン設定", icon: SlidersHorizontal },
+  { key: "factories", label: "工場", icon: Building2 },
+  { key: "workers", label: "グループ長", icon: Users },
+  { key: "users", label: "利用者・上長", icon: UserCog },
 ] as const;
 
 type TabKey = (typeof TABS)[number]["key"];
@@ -98,17 +98,19 @@ export default async function MastersPage({
         </div>
       ) : null}
 
-      <nav className="mb-5 flex gap-1 border-b border-slate-200">
+      {/* 他の PF アプリ（マスタ設定）と同じ、アイコン付きの下線タブ。モバイルは折り返す */}
+      <nav className="mb-5 flex flex-wrap gap-1 border-b border-slate-200">
         {TABS.map((t) => (
           <Link
             key={t.key}
             href={`/masters?tab=${t.key}`}
-            className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium ${
+            className={`-mb-px inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-t-lg border-b-2 px-2.5 py-2.5 text-[13px] font-semibold transition-colors sm:gap-1.5 sm:px-4 sm:text-sm ${
               t.key === tab
                 ? "border-brand-700 text-brand-700"
                 : "border-transparent text-slate-500 hover:text-slate-700"
             }`}
           >
+            <t.icon className="h-4 w-4" />
             {t.label}
           </Link>
         ))}
@@ -645,7 +647,7 @@ function FactoriesTab({ factories, canEdit }: { factories: Factory[]; canEdit: b
                   <input type="hidden" name="id" value={f.id} />
                   <SubmitButton
                     pendingLabel="削除中…"
-                    confirm={`「${f.name}」を削除します。配下のライン・作業者・報告も削除されます。よろしいですか？`}
+                    confirm={`「${f.name}」を削除します。配下のライン・グループ長・報告も削除されます。よろしいですか？`}
                     className={deleteCls}
                   >
                     削除
@@ -660,7 +662,7 @@ function FactoriesTab({ factories, canEdit }: { factories: Factory[]; canEdit: b
   );
 }
 
-/* ===== 作業者 ===== */
+/* ===== グループ長（ラインの残業有無の申請者） ===== */
 
 function WorkerFields({
   factories,
@@ -691,7 +693,7 @@ function WorkerFields({
           ))}
         </select>
       </Field>
-      <Field label="所属ライン（任意）">
+      <Field label="担当ライン（未設定なら工場全体）">
         <select
           name="lineId"
           defaultValue={worker?.lineId ?? ""}
@@ -728,16 +730,6 @@ function WorkerFields({
           className={`${inputCls} w-40`}
         />
       </Field>
-      <label className="flex items-center gap-1.5 pb-2 text-xs text-slate-600">
-        <input
-          type="checkbox"
-          name="active"
-          defaultChecked={worker?.active ?? true}
-          disabled={disabled}
-          className="h-4 w-4 rounded border-slate-300 text-brand-700 focus:ring-brand-600"
-        />
-        在籍
-      </label>
     </>
   );
 }
@@ -768,19 +760,20 @@ function WorkersTab({
     <div className="space-y-4">
       {canEdit ? (
         <section className="rounded-xl border border-slate-200 bg-white p-4">
-          <h2 className="mb-3 text-sm font-semibold text-slate-900">作業者を追加</h2>
+          <h2 className="mb-3 text-sm font-semibold text-slate-900">グループ長を追加</h2>
           <form action={saveWorkerAction} className="flex flex-wrap items-end gap-3">
             <WorkerFields factories={factories} lines={lines} canEdit />
             <SubmitButton>追加</SubmitButton>
           </form>
           <p className="mt-2 text-xs text-slate-500">
-            ここで登録した作業者が、残業の対象者として選べるようになります。
+            グループ長は、担当ラインの残業有無を申請する人です。社員番号がポータルのログインIDと
+            一致すると、進捗・残業の入力画面がその担当ラインだけに絞られます。
           </p>
         </section>
       ) : null}
 
       {workers.length === 0 ? (
-        <p className="text-sm text-slate-500">作業者がまだ登録されていません。</p>
+        <p className="text-sm text-slate-500">グループ長がまだ登録されていません。</p>
       ) : (
         <ul className="space-y-2">
           {workers.map((w) => (
@@ -795,7 +788,7 @@ function WorkersTab({
                   <input type="hidden" name="id" value={w.id} />
                   <SubmitButton
                     pendingLabel="削除中…"
-                    confirm={`「${w.name}」を削除します。よろしいですか？（残業の記録に含まれている場合は削除できません）`}
+                    confirm={`グループ長「${w.name}」を削除します。よろしいですか？`}
                     className={deleteCls}
                   >
                     削除
@@ -831,7 +824,7 @@ function UsersTab({ users, canEdit }: { users: AppUserRow[]; canEdit: boolean })
       <p className="text-xs text-slate-600">
         残業「実施」の申請は、ここで設定した<strong className="font-medium">上長</strong>
         が承認します（未設定の場合は生産管理部が承認）。「翌日回し」は設定によらず生産管理部の許可になります。
-        入力できるラインは作業者マスタの登録（社員番号の一致）で決まります。
+        入力できるラインはグループ長マスタの登録（社員番号の一致）で決まります。
       </p>
       <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
         <table className="w-full min-w-[44rem] border-collapse text-sm">

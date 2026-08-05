@@ -1,5 +1,5 @@
 import { getAdminSession } from "@/lib/session";
-import { summarize, summarizeByWorker } from "@/lib/db";
+import { summarize } from "@/lib/db";
 import { csvResponse, toCsv } from "@/lib/csv";
 import { monthStartString, todayString } from "@/lib/format";
 import { LINE_TYPE_LABEL, summaryMetrics } from "@/lib/types";
@@ -7,7 +7,7 @@ import { LINE_TYPE_LABEL, summaryMetrics } from "@/lib/types";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** 集計ページと同じ条件で CSV を出力する（工場・ライン別 ＋ 作業者別）。 */
+/** 集計ページと同じ条件で CSV を出力する（工場・ライン別）。 */
 export async function GET(req: Request) {
   const session = await getAdminSession();
   if (!session) return new Response("Unauthorized", { status: 401 });
@@ -27,7 +27,7 @@ export async function GET(req: Request) {
   };
 
   try {
-    const [rows, workers] = await Promise.all([summarize(filter), summarizeByWorker(filter)]);
+    const rows = await summarize(filter);
 
     const lineCsv = toCsv(
       [
@@ -65,20 +65,8 @@ export async function GET(req: Request) {
       })
     );
 
-    const workerCsv = toCsv(
-      ["工場", "社員番号", "氏名", "残業時間(人時)", "残業日数"],
-      workers.map((w) => [
-        w.factoryName,
-        w.employeeNo,
-        w.name,
-        (w.minutes / 60).toFixed(1),
-        w.days,
-      ])
-    );
 
-    // 1ファイルに「ライン別」「作業者別」を続けて出す（間に空行と見出しを挟む）
-    const csv = `${lineCsv}\r\n作業者別\r\n${workerCsv.replace(/^﻿/, "")}`;
-    return csvResponse(`進捗集計_${from}_${to}.csv`, csv);
+    return csvResponse(`進捗集計_${from}_${to}.csv`, lineCsv);
   } catch (e) {
     console.error("[summary/export]", e);
     return new Response("Internal Server Error", { status: 500 });

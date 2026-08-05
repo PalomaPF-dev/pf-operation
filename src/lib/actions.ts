@@ -73,21 +73,6 @@ function time(fd: FormData, key: string, fallback: string): string {
 
 /* ===== 定期報告（進捗チェック／終業後） ===== */
 
-/** 対象者の選択（worker_<workerId> のチェックと minutes_<workerId>）を読み取る。 */
-function readMembers(fd: FormData): { workerId: string; minutes: number }[] {
-  const out: { workerId: string; minutes: number }[] = [];
-  for (const [key, value] of fd.entries()) {
-    if (!key.startsWith("worker_")) continue;
-    if (value !== "on" && value !== "true") continue;
-    const workerId = key.slice("worker_".length);
-    const raw = fd.get(`minutes_${workerId}`);
-    const minutes = Math.round(Number(typeof raw === "string" ? raw : 0));
-    if (!Number.isFinite(minutes) || minutes <= 0) continue;
-    out.push({ workerId, minutes });
-  }
-  return out;
-}
-
 /**
  * 進捗と残業の要否をまとめて登録する。
  *
@@ -108,7 +93,7 @@ export async function saveReportAction(fd: FormData): Promise<void> {
   // （画面の絞り込みだけでなくサーバー側でも必ず確認する）
   const scope = await getUserScope(session.loginId);
   if (!isLineInScope(scope, line)) {
-    throw new Error("担当外のラインには入力できません（担当は作業者マスタの登録で決まります）");
+    throw new Error("担当外のラインには入力できません（担当はグループ長マスタの登録で決まります）");
   }
 
   const kindRaw = str(fd, "kind");
@@ -133,9 +118,11 @@ export async function saveReportAction(fd: FormData): Promise<void> {
   if (line.lineType === "process" && overtimeDecision === "do" && !reason) {
     throw new Error("前工程で残業を実施する場合は、理由の記載が必要です");
   }
-  const members = readMembers(fd);
-  if (overtimeDecision === "do" && members.length === 0) {
-    throw new Error("残業を実施する場合は、対象者と時間を1名以上入力してください");
+  // 残業の申請内容は「人数 × 一人当たりの時間（分）」で受ける
+  const overtimeHeadcount = Math.max(0, int(fd, "overtimeHeadcount"));
+  const overtimeMinutesPerPerson = Math.max(0, int(fd, "overtimeMinutes"));
+  if (overtimeDecision === "do" && (overtimeHeadcount <= 0 || overtimeMinutesPerPerson <= 0)) {
+    throw new Error("残業を実施する場合は、人数と一人当たりの時間を入力してください");
   }
 
   // 計画数・始業・投入人数はその日の計画として保持する（集計の分母になる）
@@ -166,14 +153,15 @@ export async function saveReportAction(fd: FormData): Promise<void> {
       reasonCode,
       reason,
       note: optStr(fd, "note"),
-      members,
+      overtimeHeadcount,
+      overtimeMinutesPerPerson,
     },
     session.userId,
     // 実施の承認先は本人の上長（利用者マスタで設定。未設定なら生産管理部宛て）
     session.approverId
   );
 
-  revalidatePath("/");
+  revalidatePath("/dashboard");
   revalidatePath("/reports");
   revalidatePath("/summary");
   redirect(`/report?line=${encodeURIComponent(lineId)}&date=${encodeURIComponent(reportDate)}&saved=1`);
@@ -216,7 +204,7 @@ export async function approveReportAction(fd: FormData): Promise<void> {
   await applyApproval(id, verdict === "approve" ? "approved" : "rejected", session.userId, comment);
   revalidatePath("/approvals");
   revalidatePath("/reports");
-  revalidatePath("/");
+  revalidatePath("/dashboard");
 }
 
 /** 上長（残業申請の承認者）の設定。マスタ編集権限者のみ。 */
@@ -236,7 +224,7 @@ export async function deleteReportAction(fd: FormData): Promise<void> {
   const id = str(fd, "id");
   if (!id) return;
   await deleteReport(id);
-  revalidatePath("/");
+  revalidatePath("/dashboard");
   revalidatePath("/reports");
   revalidatePath("/summary");
 }
@@ -326,7 +314,7 @@ export async function importMasterAction(): Promise<void> {
   await importFactoryLines();
   revalidatePath("/masters");
   revalidatePath("/report");
-  revalidatePath("/");
+  revalidatePath("/dashboard");
 }
 
 export async function deleteLineAction(fd: FormData): Promise<void> {
@@ -338,7 +326,7 @@ export async function deleteLineAction(fd: FormData): Promise<void> {
   revalidatePath("/report");
 }
 
-/* ===== マスタ：作業者 ===== */
+/* ===== マスタ：グループ長（ラインの残業有無の申請者） ===== */
 
 export async function saveWorkerAction(fd: FormData): Promise<void> {
   await requireMasterEditor();
@@ -354,7 +342,6 @@ export async function saveWorkerAction(fd: FormData): Promise<void> {
     lineId: optStr(fd, "lineId"),
     employeeNo,
     name,
-    active: bool(fd, "active"),
   };
   if (id) await updateWorker(id, input);
   else await createWorker(input);

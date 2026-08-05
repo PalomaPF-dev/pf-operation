@@ -11,7 +11,6 @@ import type {
   Line,
   LineType,
   OvertimeDecision,
-  OvertimeMember,
   ProgressStatus,
   ReasonCode,
   Report,
@@ -285,25 +284,25 @@ export async function importFactoryLines(): Promise<{ factories: number; lines: 
 
 /**
  * ログインした人の入力範囲。
- * null は無制限（作業者マスタに載っていない人＝生産管理部・本部の管理者など）。
+ * null は無制限（グループ長マスタに載っていない人＝生産管理部・本部の管理者など）。
  */
 export interface UserScope {
-  /** 担当ライン。作業者マスタでラインが設定されている行 */
+  /** 担当ライン。グループ長マスタでラインが設定されている行 */
   lineIds: string[];
   /** ライン未設定で登録されている工場（その工場の全ラインに入力できる） */
   factoryIds: string[];
 }
 
 /**
- * ログインID（社員番号）と作業者マスタの社員番号を突き合わせて入力範囲を出す。
- * 作業者として登録されていなければ null（全ラインに入力できる）。
+ * ログインID（社員番号）とグループ長マスタの社員番号を突き合わせて入力範囲を出す。
+ * グループ長として登録されていなければ null（全ラインに入力できる）。
  */
 export async function getUserScope(loginId: string): Promise<UserScope | null> {
   await ensureSchema();
   const sql = getSql();
   const rows = await sql`
     SELECT factory_id, line_id FROM op_workers
-    WHERE employee_no = ${loginId} AND active = true`;
+    WHERE employee_no = ${loginId}`;
   if (rows.length === 0) return null;
   const lineIds: string[] = [];
   const factoryIds: string[] = [];
@@ -369,24 +368,22 @@ export async function setUserApprover(userId: string, approverId: string | null)
     WHERE id = ${userId}`;
 }
 
-// ===== 作業者マスタ =====
+// ===== グループ長マスタ（op_workers。ラインの残業有無の申請者） =====
 
 export async function listWorkers(
-  opts: { factoryId?: string | null; lineId?: string | null; activeOnly?: boolean } = {}
+  opts: { factoryId?: string | null } = {}
 ): Promise<Worker[]> {
   await ensureSchema();
   const sql = getSql();
   const rows = await sql.query(
     `SELECT w.id, w.factory_id, f.name AS factory_name, w.line_id, l.name AS line_name,
-            w.employee_no, w.name, w.active
+            w.employee_no, w.name
      FROM op_workers w
      JOIN op_factories f ON f.id = w.factory_id
      LEFT JOIN op_lines l ON l.id = w.line_id
      WHERE ($1::uuid IS NULL OR w.factory_id = $1)
-       AND ($2::uuid IS NULL OR w.line_id = $2)
-       AND ($3::boolean = false OR w.active = true)
      ORDER BY f.sort_order, f.name, w.employee_no`,
-    [opts.factoryId ?? null, opts.lineId ?? null, opts.activeOnly === true]
+    [opts.factoryId ?? null]
   );
   return (rows as any[]).map((r) => ({
     id: r.id as string,
@@ -396,7 +393,6 @@ export async function listWorkers(
     lineName: (r.line_name as string | null) ?? null,
     employeeNo: r.employee_no as string,
     name: r.name as string,
-    active: r.active !== false,
   }));
 }
 
@@ -405,15 +401,14 @@ export interface WorkerInput {
   lineId: string | null;
   employeeNo: string;
   name: string;
-  active: boolean;
 }
 
 export async function createWorker(input: WorkerInput): Promise<void> {
   await ensureSchema();
   const sql = getSql();
   await sql`
-    INSERT INTO op_workers (factory_id, line_id, employee_no, name, active)
-    VALUES (${input.factoryId}, ${input.lineId}, ${input.employeeNo}, ${input.name}, ${input.active})`;
+    INSERT INTO op_workers (factory_id, line_id, employee_no, name)
+    VALUES (${input.factoryId}, ${input.lineId}, ${input.employeeNo}, ${input.name})`;
 }
 
 export async function updateWorker(id: string, input: WorkerInput): Promise<void> {
@@ -422,7 +417,7 @@ export async function updateWorker(id: string, input: WorkerInput): Promise<void
   await sql`
     UPDATE op_workers
     SET factory_id = ${input.factoryId}, line_id = ${input.lineId},
-        employee_no = ${input.employeeNo}, name = ${input.name}, active = ${input.active}
+        employee_no = ${input.employeeNo}, name = ${input.name}
     WHERE id = ${id}`;
 }
 
@@ -502,15 +497,8 @@ export async function upsertPlan(
 // ===== 定期報告 =====
 
 function mapReport(r: any): Report {
-  const members = ((r.members as any[]) ?? []).map(
-    (m): OvertimeMember => ({
-      id: String(m.id),
-      workerId: String(m.worker_id),
-      workerName: String(m.worker_name ?? ""),
-      employeeNo: String(m.employee_no ?? ""),
-      minutes: num(m.minutes),
-    })
-  );
+  const overtimeHeadcount = num(r.overtime_headcount);
+  const overtimeMinutesPerPerson = num(r.overtime_minutes);
   return {
     id: r.id as string,
     lineId: r.line_id as string,
@@ -539,8 +527,9 @@ function mapReport(r: any): Report {
     approvalByName: (r.approval_by_name as string | null) ?? null,
     approvalAt: tsStr(r.approval_at),
     approvalComment: (r.approval_comment as string | null) ?? null,
-    members,
-    overtimeMinutes: members.reduce((s, m) => s + m.minutes, 0),
+    overtimeHeadcount,
+    overtimeMinutesPerPerson,
+    overtimeManMinutes: overtimeHeadcount * overtimeMinutesPerPerson,
   };
 }
 
@@ -553,16 +542,7 @@ const REPORT_SELECT = `
          r.reported_by, r.reported_at, u.name AS reported_by_name,
          r.approver_id, ap.name AS approver_name,
          r.approval_status, ab.name AS approval_by_name, r.approval_at, r.approval_comment,
-         COALESCE(
-           (SELECT json_agg(json_build_object(
-                     'id', m.id, 'worker_id', m.worker_id, 'worker_name', w.name,
-                     'employee_no', w.employee_no, 'minutes', m.minutes)
-                   ORDER BY w.employee_no)
-            FROM op_overtime_members m
-            JOIN op_workers w ON w.id = m.worker_id
-            WHERE m.report_id = r.id),
-           '[]'::json
-         ) AS members
+         r.overtime_headcount, r.overtime_minutes
   FROM op_reports r
   JOIN op_lines l ON l.id = r.line_id
   JOIN op_factories f ON f.id = l.factory_id
@@ -668,7 +648,9 @@ export interface ReportInput {
   reasonCode: ReasonCode | null;
   reason: string | null;
   note: string | null;
-  members: { workerId: string; minutes: number }[];
+  /** 残業の申請内容（実施のとき）。人数 × 一人当たりの分 */
+  overtimeHeadcount: number;
+  overtimeMinutesPerPerson: number;
 }
 
 /**
@@ -692,40 +674,47 @@ export async function saveReport(
   const approvalStatus = needsApproval ? "pending" : null;
   // 翌日回しは常に生産管理部宛て。実施は上長宛て（未設定なら生産管理部宛て）
   const routedApprover = input.overtimeDecision === "do" ? approverId : null;
+  const otHeads = input.overtimeDecision === "do" ? input.overtimeHeadcount : 0;
+  const otMinutes = input.overtimeDecision === "do" ? input.overtimeMinutesPerPerson : 0;
   const rows = await sql`
     INSERT INTO op_reports
       (line_id, plan_id, report_date, kind, report_time, start_time,
        planned_qty, theoretical_qty, actual_qty, progress_status, overtime_decision,
+       overtime_headcount, overtime_minutes,
        reason_code, reason, note, reported_by, reported_at,
        approver_id, approval_status, approval_by, approval_at, approval_comment)
     VALUES
       (${input.lineId}, ${input.planId}, ${input.reportDate}, ${input.kind}, ${input.reportTime},
        ${input.startTime}, ${input.plannedQty}, ${input.theoreticalQty}, ${input.actualQty},
-       ${input.progressStatus}, ${input.overtimeDecision}, ${input.reasonCode}, ${input.reason},
+       ${input.progressStatus}, ${input.overtimeDecision}, ${otHeads}, ${otMinutes},
+       ${input.reasonCode}, ${input.reason},
        ${input.note}, ${userId}, now(),
        ${routedApprover}, ${approvalStatus}, NULL, NULL, NULL)
     ON CONFLICT (line_id, report_date, report_time) DO UPDATE SET
-      plan_id           = EXCLUDED.plan_id,
-      kind              = EXCLUDED.kind,
-      start_time        = EXCLUDED.start_time,
-      planned_qty       = EXCLUDED.planned_qty,
-      theoretical_qty   = EXCLUDED.theoretical_qty,
-      actual_qty        = EXCLUDED.actual_qty,
-      progress_status   = EXCLUDED.progress_status,
-      overtime_decision = EXCLUDED.overtime_decision,
-      reason_code       = EXCLUDED.reason_code,
-      reason            = EXCLUDED.reason,
-      note              = EXCLUDED.note,
-      reported_by       = EXCLUDED.reported_by,
-      reported_at       = now(),
-      approver_id       = EXCLUDED.approver_id,
-      approval_status   = EXCLUDED.approval_status,
-      approval_by       = NULL,
-      approval_at       = NULL,
-      approval_comment  = NULL
+      plan_id            = EXCLUDED.plan_id,
+      kind               = EXCLUDED.kind,
+      start_time         = EXCLUDED.start_time,
+      planned_qty        = EXCLUDED.planned_qty,
+      theoretical_qty    = EXCLUDED.theoretical_qty,
+      actual_qty         = EXCLUDED.actual_qty,
+      progress_status    = EXCLUDED.progress_status,
+      overtime_decision  = EXCLUDED.overtime_decision,
+      overtime_headcount = EXCLUDED.overtime_headcount,
+      overtime_minutes   = EXCLUDED.overtime_minutes,
+      reason_code        = EXCLUDED.reason_code,
+      reason             = EXCLUDED.reason,
+      note               = EXCLUDED.note,
+      reported_by        = EXCLUDED.reported_by,
+      reported_at        = now(),
+      approver_id        = EXCLUDED.approver_id,
+      approval_status    = EXCLUDED.approval_status,
+      approval_by        = NULL,
+      approval_at        = NULL,
+      approval_comment   = NULL
     RETURNING id`;
   const id = rows[0].id as string;
-  await replaceMembers(id, input.overtimeDecision === "do" ? input.members : []);
+  // 旧形式（対象者ごとの記録）が残っていれば、上書きに合わせて掃除する
+  await sql`DELETE FROM op_overtime_members WHERE report_id = ${id}`;
   return id;
 }
 
@@ -791,21 +780,6 @@ export async function applyApproval(
   return rows.length > 0;
 }
 
-async function replaceMembers(
-  reportId: string,
-  members: { workerId: string; minutes: number }[]
-): Promise<void> {
-  const sql = getSql();
-  await sql`DELETE FROM op_overtime_members WHERE report_id = ${reportId}`;
-  if (members.length === 0) return;
-  const workerIds = members.map((m) => m.workerId);
-  const minutes = members.map((m) => m.minutes);
-  await sql`
-    INSERT INTO op_overtime_members (report_id, worker_id, minutes)
-    SELECT ${reportId}::uuid, x.w::uuid, x.m
-    FROM unnest(${workerIds}::text[], ${minutes}::int[]) AS x(w, m)
-    ON CONFLICT (report_id, worker_id) DO UPDATE SET minutes = EXCLUDED.minutes`;
-}
 
 export async function deleteReport(id: string): Promise<void> {
   await ensureSchema();
@@ -829,7 +803,7 @@ export interface SummaryFilter {
  *
  * - 実績数量はその日の「最後の報告の実績」を採用する（累計で報告するため合計ではなく最終値）。
  * - 計画工数は 稼働時間（H）× 投入人数（日次計画に無ければライン標準）。
- * - 残業工数は対象者ごとの分の合計 ÷ 60。
+ * - 残業もその日の「最後の報告」の申請内容（人数 × 一人当たりの分）を使う。
  */
 export async function summarize(filter: SummaryFilter): Promise<SummaryRow[]> {
   await ensureSchema();
@@ -853,18 +827,13 @@ export async function summarize(filter: SummaryFilter): Promise<SummaryRow[]> {
      ),
      last_report AS (
        SELECT DISTINCT ON (r.line_id, r.report_date)
-              r.line_id, r.report_date, r.actual_qty, r.planned_qty
+              r.line_id, r.report_date, r.actual_qty, r.planned_qty,
+              CASE WHEN r.overtime_decision = 'do' THEN r.overtime_headcount ELSE 0 END AS ot_heads,
+              CASE WHEN r.overtime_decision = 'do'
+                   THEN r.overtime_headcount * r.overtime_minutes ELSE 0 END AS ot_man_minutes
        FROM op_reports r
        WHERE r.report_date BETWEEN $1 AND $2
        ORDER BY r.line_id, r.report_date, r.report_time DESC
-     ),
-     ot AS (
-       SELECT r.line_id, r.report_date,
-              SUM(m.minutes) AS minutes, COUNT(m.id) AS heads
-       FROM op_reports r
-       JOIN op_overtime_members m ON m.report_id = r.id
-       WHERE r.report_date BETWEEN $1 AND $2
-       GROUP BY r.line_id, r.report_date
      ),
      delayed AS (
        SELECT r.line_id, r.report_date, COUNT(*) AS cnt
@@ -879,15 +848,14 @@ export async function summarize(filter: SummaryFilter): Promise<SummaryRow[]> {
             COALESCE(p.planned_qty, lr.planned_qty, 0) AS planned_qty,
             COALESCE(lr.actual_qty, 0) AS actual_qty,
             COALESCE(p.headcount, l.headcount) AS headcount,
-            COALESCE(ot.minutes, 0) AS ot_minutes,
-            COALESCE(ot.heads, 0) AS ot_heads,
+            COALESCE(lr.ot_man_minutes, 0) AS ot_minutes,
+            COALESCE(lr.ot_heads, 0) AS ot_heads,
             COALESCE(dl.cnt, 0) AS delayed_cnt
      FROM days d
      JOIN op_lines l ON l.id = d.line_id
      JOIN op_factories f ON f.id = l.factory_id
      LEFT JOIN op_daily_plans p ON p.line_id = d.line_id AND p.plan_date = d.the_date
      LEFT JOIN last_report lr ON lr.line_id = d.line_id AND lr.report_date = d.the_date
-     LEFT JOIN ot ON ot.line_id = d.line_id AND ot.report_date = d.the_date
      LEFT JOIN delayed dl ON dl.line_id = d.line_id AND dl.report_date = d.the_date`,
     [filter.dateFrom, filter.dateTo, filter.factoryId ?? null, filter.lineId ?? null]
   );
@@ -945,40 +913,3 @@ export async function summarize(filter: SummaryFilter): Promise<SummaryRow[]> {
     }));
 }
 
-/** 集計期間内の、作業者ごとの残業時間（誰にどれだけ偏っているかを見る）。 */
-export async function summarizeByWorker(filter: SummaryFilter): Promise<
-  {
-    workerId: string;
-    employeeNo: string;
-    name: string;
-    factoryName: string;
-    minutes: number;
-    days: number;
-  }[]
-> {
-  await ensureSchema();
-  const sql = getSql();
-  const rows = await sql.query(
-    `SELECT w.id, w.employee_no, w.name, f.name AS factory_name,
-            SUM(m.minutes) AS minutes, COUNT(DISTINCT r.report_date) AS days
-     FROM op_overtime_members m
-     JOIN op_reports r ON r.id = m.report_id
-     JOIN op_workers w ON w.id = m.worker_id
-     JOIN op_factories f ON f.id = w.factory_id
-     JOIN op_lines l ON l.id = r.line_id
-     WHERE r.report_date BETWEEN $1 AND $2
-       AND ($3::uuid IS NULL OR l.factory_id = $3)
-       AND ($4::uuid IS NULL OR l.id = $4)
-     GROUP BY w.id, w.employee_no, w.name, f.name
-     ORDER BY SUM(m.minutes) DESC`,
-    [filter.dateFrom, filter.dateTo, filter.factoryId ?? null, filter.lineId ?? null]
-  );
-  return (rows as any[]).map((r) => ({
-    workerId: r.id as string,
-    employeeNo: r.employee_no as string,
-    name: r.name as string,
-    factoryName: r.factory_name as string,
-    minutes: num(r.minutes),
-    days: num(r.days),
-  }));
-}

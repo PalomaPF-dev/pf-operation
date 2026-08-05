@@ -1,9 +1,8 @@
 import { Download, Printer } from "lucide-react";
 import { requireAdminSession } from "@/lib/session";
-import { listFactories, listLines, summarize, summarizeByWorker } from "@/lib/db";
+import { listFactories, listLines, summarize } from "@/lib/db";
 import {
   formatDate,
-  formatHours,
   formatManHours,
   formatNumber,
   formatPercent,
@@ -43,14 +42,9 @@ export default async function SummaryPage({
 
   const filter = { dateFrom: from, dateTo: to, factoryId, lineId, groupBy };
 
-  let factories, lines, rows, workerRows;
+  let factories, lines, rows;
   try {
-    [factories, lines, rows, workerRows] = await Promise.all([
-      listFactories(),
-      listLines(),
-      summarize(filter),
-      summarizeByWorker(filter),
-    ]);
+    [factories, lines, rows] = await Promise.all([listFactories(), listLines(), summarize(filter)]);
   } catch (e) {
     console.error("[summary]", e);
     return (
@@ -267,46 +261,6 @@ export default async function SummaryPage({
         </table>
       </div>
 
-      <h2 className="mb-2 text-sm font-semibold text-slate-900">
-        作業者別の残業時間
-        <span className="ml-2 text-xs font-normal text-slate-500">
-          偏りがないかを確認します（多い順）
-        </span>
-      </h2>
-      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-        <table className="print-table w-full min-w-[560px] text-sm">
-          <thead>
-            <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs text-slate-600">
-              <th className="px-3 py-2">工場</th>
-              <th className="px-3 py-2">社員番号</th>
-              <th className="px-3 py-2">氏名</th>
-              <th className="px-3 py-2 text-right">残業時間</th>
-              <th className="px-3 py-2 text-right">日数</th>
-            </tr>
-          </thead>
-          <tbody>
-            {workerRows.length === 0 ? (
-              <tr>
-                <td colSpan={5} className="px-3 py-6 text-center text-slate-500">
-                  期間内の残業はありません。
-                </td>
-              </tr>
-            ) : (
-              workerRows.map((w) => (
-                <tr key={w.workerId} className="border-b border-slate-100 last:border-0">
-                  <td className="px-3 py-2 text-slate-600">{w.factoryName}</td>
-                  <td className="px-3 py-2 tabular-nums text-slate-600">{w.employeeNo}</td>
-                  <td className="px-3 py-2 font-medium text-slate-900">{w.name}</td>
-                  <td className="px-3 py-2 text-right font-medium tabular-nums">
-                    {formatHours(w.minutes)}
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums text-slate-600">{w.days}</td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
     </div>
   );
 }

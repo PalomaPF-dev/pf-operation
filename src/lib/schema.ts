@@ -27,7 +27,7 @@ let schemaReady: Promise<void> | null = null;
  * - op_factories         … 工場マスタ
  * - op_lines             … ラインマスタ（ライン実力・稼働時間・始業・休憩）
  * - op_line_breaks       … 休憩時間帯（理論値の計算で差し引く）
- * - op_workers           … 作業者（残業申請の対象となる部下）
+ * - op_workers           … グループ長（ラインの残業有無の申請者）
  * - op_daily_plans       … 日ごとの計画数・始業・投入人数
  * - op_reports           … 定期報告（進捗チェック／終業後）と残業の要否
  * - op_overtime_members  … 残業の対象者と時間
@@ -122,6 +122,9 @@ async function buildSchema(): Promise<void> {
       UNIQUE (line_id, start_time)
     )`);
 
+  // op_workers ＝ グループ長（ラインの残業有無の申請者）。
+  // 社員番号がログインIDと一致すると、入力画面がその担当ラインに絞られる。
+  // ※ テーブル名は歴史的に workers のまま（冪等 DDL のためリネームしない）
   await safeDdl(() => sql`
     CREATE TABLE IF NOT EXISTS op_workers (
       id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -169,6 +172,9 @@ async function buildSchema(): Promise<void> {
       progress_status   text NOT NULL DEFAULT 'ontrack',
       -- 'do'（実施）| 'defer'（翌日回し）| 'none'（対象外）
       overtime_decision text NOT NULL DEFAULT 'none',
+      -- 残業の申請内容（実施のとき）。人数 × 一人当たりの分
+      overtime_headcount integer NOT NULL DEFAULT 0,
+      overtime_minutes   integer NOT NULL DEFAULT 0,
       reason_code       text,
       reason            text,
       note              text,
@@ -197,6 +203,24 @@ async function buildSchema(): Promise<void> {
   );
   await safeDdl(() => sql`ALTER TABLE op_reports ADD COLUMN IF NOT EXISTS approval_at timestamptz`);
   await safeDdl(() => sql`ALTER TABLE op_reports ADD COLUMN IF NOT EXISTS approval_comment text`);
+  await safeDdl(
+    () =>
+      sql`ALTER TABLE op_reports ADD COLUMN IF NOT EXISTS overtime_headcount integer NOT NULL DEFAULT 0`
+  );
+  await safeDdl(
+    () =>
+      sql`ALTER TABLE op_reports ADD COLUMN IF NOT EXISTS overtime_minutes integer NOT NULL DEFAULT 0`
+  );
+  // 旧形式（対象者ごとの記録 op_overtime_members）からの引き継ぎ。
+  // 人数×時間に未設定（0）の実施報告だけを、人数=件数・時間=平均で埋める（冪等）。
+  await safeDdl(() => sql`
+    UPDATE op_reports r
+    SET overtime_headcount = s.heads, overtime_minutes = s.avg_minutes
+    FROM (
+      SELECT report_id, COUNT(*)::int AS heads, ROUND(AVG(minutes))::int AS avg_minutes
+      FROM op_overtime_members GROUP BY report_id
+    ) s
+    WHERE s.report_id = r.id AND r.overtime_headcount = 0 AND r.overtime_decision = 'do'`);
 
   await safeDdl(() => sql`
     CREATE TABLE IF NOT EXISTS op_overtime_members (

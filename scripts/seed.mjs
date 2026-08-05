@@ -35,13 +35,14 @@ const FACTORIES = DATA.factories;
 const START_TIME = DATA.startTime;
 const BREAKS = DATA.breaks;
 
-/** 残業申請を試すためのサンプル作業者（--with-sample-workers のときだけ）。 */
+/**
+ * 申請フローを試すためのサンプルのグループ長（--with-sample-workers のときだけ）。
+ * 社員番号をポータルのログインIDと同じにすると、入力画面がその担当ラインに絞られる。
+ */
 const SAMPLE_WORKERS = [
   { factory: "清洲工場", employeeNo: "90001", name: "サンプル 一郎", line: "#1" },
-  { factory: "清洲工場", employeeNo: "90002", name: "サンプル 二郎", line: "#1" },
-  { factory: "清洲工場", employeeNo: "90003", name: "サンプル 三郎", line: "#2" },
-  { factory: "清洲工場", employeeNo: "90004", name: "サンプル 四郎", line: "#2" },
-  { factory: "清洲工場", employeeNo: "90005", name: "サンプル 五郎", line: null },
+  { factory: "清洲工場", employeeNo: "90002", name: "サンプル 二郎", line: "#2" },
+  { factory: "清洲工場", employeeNo: "90003", name: "サンプル 三郎", line: null },
 ];
 
 async function main() {

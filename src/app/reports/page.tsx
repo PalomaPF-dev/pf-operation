@@ -61,8 +61,8 @@ export default async function ReportsPage({
     );
   }
 
-  const otMinutes = reports.reduce((s, r) => s + r.overtimeMinutes, 0);
-  const otHeads = reports.reduce((s, r) => s + r.members.length, 0);
+  const otMinutes = reports.reduce((s, r) => s + r.overtimeManMinutes, 0);
+  const otHeads = reports.reduce((s, r) => s + r.overtimeHeadcount, 0);
 
   const inputCls =
     "rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600";
@@ -182,27 +182,14 @@ export default async function ReportsPage({
                     差異 {gap > 0 ? `-${gap}` : `+${-gap}`}
                     {unit}
                   </span>
-                  {r.overtimeMinutes > 0 ? (
+                  {r.overtimeManMinutes > 0 ? (
                     <span className="font-semibold">
-                      残業 {formatHours(r.overtimeMinutes)}／{r.members.length}名
+                      残業 {r.overtimeHeadcount}名 × {r.overtimeMinutesPerPerson}分（延べ
+                      {formatHours(r.overtimeManMinutes)}）
                     </span>
                   ) : null}
                 </div>
 
-                {r.members.length > 0 ? (
-                  <div className="mb-2 flex flex-wrap gap-1.5">
-                    {r.members.map((m) => (
-                      <span
-                        key={m.id}
-                        className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-700"
-                      >
-                        <span className="tabular-nums text-slate-500">{m.employeeNo}</span>
-                        {m.workerName}
-                        <span className="tabular-nums font-medium">{formatHours(m.minutes)}</span>
-                      </span>
-                    ))}
-                  </div>
-                ) : null}
 
                 {r.reason || r.note ? (
                   <p className="mb-2 text-xs text-slate-600">
