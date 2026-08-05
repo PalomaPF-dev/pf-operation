@@ -14,6 +14,8 @@ export interface AppSession {
   department: string | null;
   /** ポータルの管理権限を持つか（部署によらずマスタを編集できる） */
   portalAdmin: boolean;
+  /** 上長（残業申請の承認者）。利用者マスタで設定。null なら申請は生産管理部宛て */
+  approverId: string | null;
   /** マスタ（工場・ライン・作業者）を編集できるか */
   canEditMaster: boolean;
 }
@@ -75,6 +77,7 @@ export async function requireAdminSession(): Promise<AppSession> {
     factory: user.factory,
     department: user.department,
     portalAdmin: user.portalAdmin,
+    approverId: user.approverId,
     canEditMaster: canEditMaster(user),
   };
 }
@@ -108,6 +111,7 @@ export async function getAdminSession(): Promise<AppSession | null> {
     factory: user.factory,
     department: user.department,
     portalAdmin: user.portalAdmin,
+    approverId: user.approverId,
     canEditMaster: canEditMaster(user),
   };
 }

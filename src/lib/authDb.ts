@@ -15,6 +15,8 @@ export interface AppUser {
   department: string | null;
   /** ポータルの管理権限（can_manage）。部署によらずマスタを編集できる */
   portalAdmin: boolean;
+  /** 上長（残業申請の承認者）。利用者マスタで設定する */
+  approverId: string | null;
 }
 
 function toRole(v: unknown): UserRole {
@@ -31,6 +33,7 @@ function toUser(row: Record<string, unknown>): AppUser {
     factory: (row.factory as string | null) ?? null,
     department: (row.department as string | null) ?? null,
     portalAdmin: row.portal_admin === true,
+    approverId: (row.approver_id as string | null) ?? null,
   };
 }
 
@@ -39,7 +42,7 @@ export async function findUserByLoginId(loginId: string): Promise<AppUser | null
   await ensureSchema();
   const sql = getSql();
   const rows = await sql`
-    SELECT id, login_id, name, email, role, factory, department, portal_admin
+    SELECT id, login_id, name, email, role, factory, department, portal_admin, approver_id
     FROM op_users WHERE login_id = ${loginId} LIMIT 1`;
   return rows[0] ? toUser(rows[0] as Record<string, unknown>) : null;
 }
@@ -49,7 +52,7 @@ export async function findUserById(id: string): Promise<AppUser | null> {
   await ensureSchema();
   const sql = getSql();
   const rows = await sql`
-    SELECT id, login_id, name, email, role, factory, department, portal_admin
+    SELECT id, login_id, name, email, role, factory, department, portal_admin, approver_id
     FROM op_users WHERE id = ${id} LIMIT 1`;
   return rows[0] ? toUser(rows[0] as Record<string, unknown>) : null;
 }
@@ -92,7 +95,7 @@ export async function upsertPortalUser(
       department   = COALESCE(EXCLUDED.department, op_users.department),
       portal_admin = COALESCE(${portalAdmin}::boolean, op_users.portal_admin),
       updated_at   = now()
-    RETURNING id, login_id, name, email, role, factory, department, portal_admin, (xmax = 0) AS inserted`;
+    RETURNING id, login_id, name, email, role, factory, department, portal_admin, approver_id, (xmax = 0) AS inserted`;
   const row = rows[0] as Record<string, unknown>;
   return { user: toUser(row), created: row.inserted === true };
 }

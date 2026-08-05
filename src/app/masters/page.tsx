@@ -1,13 +1,14 @@
 import Link from "next/link";
 import { Info } from "lucide-react";
 import { masterEditDepartments, requireAdminSession } from "@/lib/session";
-import { listFactories, listLines, listWorkers } from "@/lib/db";
+import { listAppUsers, listFactories, listLines, listWorkers, type AppUserRow } from "@/lib/db";
 import {
   deleteFactoryAction,
   deleteLineAction,
   deleteWorkerAction,
   importMasterAction,
   saveCapacitiesAction,
+  saveUserApproverAction,
   saveFactoryAction,
   saveLineAction,
   saveWorkerAction,
@@ -32,6 +33,7 @@ const TABS = [
   { key: "lines", label: "ライン設定" },
   { key: "factories", label: "工場" },
   { key: "workers", label: "作業者" },
+  { key: "users", label: "利用者・上長" },
 ] as const;
 
 type TabKey = (typeof TABS)[number]["key"];
@@ -61,9 +63,14 @@ export default async function MastersPage({
   // 編集可否はページでもサーバーアクションでも判定する（画面はボタンを出さないだけ）
   const canEdit = session.canEditMaster;
 
-  let factories, lines, workers;
+  let factories, lines, workers, users;
   try {
-    [factories, lines, workers] = await Promise.all([listFactories(), listLines(), listWorkers()]);
+    [factories, lines, workers, users] = await Promise.all([
+      listFactories(),
+      listLines(),
+      listWorkers(),
+      listAppUsers(),
+    ]);
   } catch (e) {
     console.error("[masters]", e);
     return (
@@ -115,6 +122,7 @@ export default async function MastersPage({
       {tab === "workers" ? (
         <WorkersTab factories={factories} lines={lines} workers={workers} canEdit={canEdit} />
       ) : null}
+      {tab === "users" ? <UsersTab users={users} canEdit={canEdit} /> : null}
     </div>
   );
 }
@@ -798,6 +806,98 @@ function WorkersTab({
           ))}
         </ul>
       )}
+    </div>
+  );
+}
+
+/* ===== 利用者（上長の設定） ===== */
+
+/**
+ * ログインしたことのある利用者と、その上長（残業申請の承認者）。
+ * 「実施」の申請は上長に回り、承認後に生産管理部へ届く。上長未設定の申請は生産管理部が承認する。
+ */
+function UsersTab({ users, canEdit }: { users: AppUserRow[]; canEdit: boolean }) {
+  // 承認者に選べるのは管理者のみ（このアプリを使えるのは管理者だけのため）
+  const approverOptions = users.filter((u) => u.role === "admin");
+  if (users.length === 0) {
+    return (
+      <p className="text-sm text-slate-500">
+        利用者がまだいません。ポータルからログインすると、ここに表示されます。
+      </p>
+    );
+  }
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-slate-600">
+        残業「実施」の申請は、ここで設定した<strong className="font-medium">上長</strong>
+        が承認します（未設定の場合は生産管理部が承認）。「翌日回し」は設定によらず生産管理部の許可になります。
+        入力できるラインは作業者マスタの登録（社員番号の一致）で決まります。
+      </p>
+      <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
+        <table className="w-full min-w-[44rem] border-collapse text-sm">
+          <thead className="bg-slate-50 text-xs text-slate-600">
+            <tr className="border-b border-slate-200">
+              <th className="px-3 py-2 text-left">社員番号</th>
+              <th className="px-3 py-2 text-left">氏名</th>
+              <th className="px-3 py-2 text-left">所属</th>
+              <th className="px-3 py-2 text-left">上長（承認者）</th>
+              {canEdit ? <th className="px-3 py-2" /> : null}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {users.map((u) => (
+              <tr key={u.id} className={u.role !== "admin" ? "text-slate-400" : ""}>
+                <td className="px-3 py-2 tabular-nums">{u.loginId}</td>
+                <td className="px-3 py-2 font-medium text-slate-900">
+                  {u.name}
+                  {u.role !== "admin" ? (
+                    <span className="ml-1.5 text-[10px] font-normal text-slate-400">
+                      一般（ログイン不可）
+                    </span>
+                  ) : null}
+                  {u.portalAdmin ? (
+                    <span className="ml-1.5 rounded bg-brand-100 px-1.5 py-0.5 text-[10px] font-normal text-brand-800">
+                      ポータル管理
+                    </span>
+                  ) : null}
+                </td>
+                <td className="px-3 py-2 text-xs text-slate-500">
+                  {[u.factory, u.department].filter(Boolean).join(" / ") || "—"}
+                </td>
+                {canEdit ? (
+                  <td className="px-3 py-2" colSpan={2}>
+                    <form action={saveUserApproverAction} className="flex items-center gap-2">
+                      <input type="hidden" name="id" value={u.id} />
+                      <select
+                        name="approverId"
+                        defaultValue={u.approverId ?? ""}
+                        className={`${inputCls} w-56`}
+                      >
+                        <option value="">未設定（生産管理部が承認）</option>
+                        {approverOptions
+                          .filter((a) => a.id !== u.id)
+                          .map((a) => (
+                            <option key={a.id} value={a.id}>
+                              {a.name}（{a.loginId}）
+                            </option>
+                          ))}
+                      </select>
+                      <SubmitButton
+                        pendingLabel="保存中…"
+                        className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                      >
+                        保存
+                      </SubmitButton>
+                    </form>
+                  </td>
+                ) : (
+                  <td className="px-3 py-2">{u.approverName ?? "未設定（生産管理部が承認）"}</td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

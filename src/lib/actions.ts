@@ -11,9 +11,14 @@ import {
   deleteLine,
   deleteReport,
   deleteWorker,
+  applyApproval,
   getLine,
+  getReport,
+  getUserScope,
   importFactoryLines,
+  isLineInScope,
   saveReport,
+  setUserApprover,
   updateFactory,
   updateLine,
   updateLineRow,
@@ -99,6 +104,13 @@ export async function saveReportAction(fd: FormData): Promise<void> {
   const line = await getLine(lineId);
   if (!line) throw new Error("ラインが見つかりません");
 
+  // 作業者マスタで担当が決まっている人は、担当ライン以外に入力できない
+  // （画面の絞り込みだけでなくサーバー側でも必ず確認する）
+  const scope = await getUserScope(session.loginId);
+  if (!isLineInScope(scope, line)) {
+    throw new Error("担当外のラインには入力できません（担当は作業者マスタの登録で決まります）");
+  }
+
   const kindRaw = str(fd, "kind");
   const kind: ReportKind = isReportKind(kindRaw) ? kindRaw : "checkpoint";
   const startTime = time(fd, "startTime", line.startTime);
@@ -156,13 +168,67 @@ export async function saveReportAction(fd: FormData): Promise<void> {
       note: optStr(fd, "note"),
       members,
     },
-    session.userId
+    session.userId,
+    // 実施の承認先は本人の上長（利用者マスタで設定。未設定なら生産管理部宛て）
+    session.approverId
   );
 
   revalidatePath("/");
   revalidatePath("/reports");
   revalidatePath("/summary");
   redirect(`/report?line=${encodeURIComponent(lineId)}&date=${encodeURIComponent(reportDate)}&saved=1`);
+}
+
+/* ===== 承認ワークフロー =====
+   実施(do)      … 承認者＝報告者の上長（未設定なら生産管理部）。承認済みが生産管理部へ届く。
+   翌日回し(defer)… 生産管理部（マスタ編集権限者）が許可する。 */
+
+export async function approveReportAction(fd: FormData): Promise<void> {
+  const session = await requireAdminSession();
+  const id = str(fd, "id");
+  const verdict = str(fd, "verdict"); // 'approve' | 'reject'
+  if (!id || (verdict !== "approve" && verdict !== "reject")) return;
+  const comment = optStr(fd, "comment");
+
+  const report = await getReport(id);
+  if (!report) throw new Error("申請が見つかりません");
+  if (report.approvalStatus !== "pending") throw new Error("この申請は処理済みです");
+
+  // 権限：実施は指名された上長（生産管理部は不在時の受け皿として常に可）。
+  //       翌日回しは生産管理部のみ。
+  const allowed =
+    report.overtimeDecision === "do"
+      ? report.approverId === session.userId || session.canEditMaster
+      : report.overtimeDecision === "defer"
+        ? session.canEditMaster
+        : false;
+  if (!allowed) {
+    throw new Error(
+      report.overtimeDecision === "defer"
+        ? "翌日回しの許可は生産管理部の管理者のみ行えます"
+        : "この申請の承認者ではありません"
+    );
+  }
+  if (verdict === "reject" && !comment) {
+    throw new Error("差し戻しの理由を記載してください");
+  }
+
+  await applyApproval(id, verdict === "approve" ? "approved" : "rejected", session.userId, comment);
+  revalidatePath("/approvals");
+  revalidatePath("/reports");
+  revalidatePath("/");
+}
+
+/** 上長（残業申請の承認者）の設定。マスタ編集権限者のみ。 */
+export async function saveUserApproverAction(fd: FormData): Promise<void> {
+  await requireMasterEditor();
+  const id = str(fd, "id");
+  if (!id) return;
+  const approverId = optStr(fd, "approverId");
+  if (approverId === id) throw new Error("自分自身を上長には設定できません");
+  await setUserApprover(id, approverId);
+  revalidatePath("/masters");
+  revalidatePath("/approvals");
 }
 
 export async function deleteReportAction(fd: FormData): Promise<void> {

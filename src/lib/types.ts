@@ -57,6 +57,23 @@ export function isOvertimeDecision(v: unknown): v is OvertimeDecision {
   return v === "do" || v === "defer" || v === "none";
 }
 
+/**
+ * 承認ワークフローの状態。
+ * 実施(do) は報告者の上長（未設定なら生産管理部）が承認し、承認済みが生産管理部へ届く。
+ * 翌日回し(defer) は生産管理部が許可する。対象外(none) はワークフローなし（null）。
+ */
+export type ApprovalStatus = "pending" | "approved" | "rejected";
+
+export const APPROVAL_STATUS_LABEL: Record<ApprovalStatus, string> = {
+  pending: "承認待ち",
+  approved: "承認済み",
+  rejected: "差し戻し",
+};
+
+export function isApprovalStatus(v: unknown): v is ApprovalStatus {
+  return v === "pending" || v === "approved" || v === "rejected";
+}
+
 /** 残業・遅延の理由区分。 */
 export type ReasonCode =
   | "shortfall"
@@ -166,8 +183,18 @@ export interface Report {
   reasonCode: ReasonCode | null;
   reason: string | null;
   note: string | null;
+  reportedById: string | null;
   reportedByName: string | null;
   reportedAt: string | null;
+  /* ----- 承認ワークフロー（実施＝上長承認 → 生産管理部へ／翌日回し＝生産管理部の許可） ----- */
+  /** 承認者（上長）。NULL は生産管理部宛て（翌日回し、または上長未設定の実施） */
+  approverId: string | null;
+  approverName: string | null;
+  /** 承認状態。NULL は承認対象外（残業なし） */
+  approvalStatus: ApprovalStatus | null;
+  approvalByName: string | null;
+  approvalAt: string | null;
+  approvalComment: string | null;
   members: OvertimeMember[];
   /** 残業時間の合計（分） */
   overtimeMinutes: number;

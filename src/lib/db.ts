@@ -4,6 +4,7 @@ import { formatTime, toDateString } from "./format";
 import { plannedManHoursOf } from "./capacity";
 import FACTORY_LINES from "@/data/factoryLines.json";
 import type {
+  ApprovalStatus,
   BreakSpan,
   DailyPlan,
   Factory,
@@ -280,6 +281,94 @@ export async function importFactoryLines(): Promise<{ factories: number; lines: 
   return { factories: FACTORY_LINES.factories.length, lines: lineCount };
 }
 
+// ===== 入力範囲（担当ライン）の絞り込み =====
+
+/**
+ * ログインした人の入力範囲。
+ * null は無制限（作業者マスタに載っていない人＝生産管理部・本部の管理者など）。
+ */
+export interface UserScope {
+  /** 担当ライン。作業者マスタでラインが設定されている行 */
+  lineIds: string[];
+  /** ライン未設定で登録されている工場（その工場の全ラインに入力できる） */
+  factoryIds: string[];
+}
+
+/**
+ * ログインID（社員番号）と作業者マスタの社員番号を突き合わせて入力範囲を出す。
+ * 作業者として登録されていなければ null（全ラインに入力できる）。
+ */
+export async function getUserScope(loginId: string): Promise<UserScope | null> {
+  await ensureSchema();
+  const sql = getSql();
+  const rows = await sql`
+    SELECT factory_id, line_id FROM op_workers
+    WHERE employee_no = ${loginId} AND active = true`;
+  if (rows.length === 0) return null;
+  const lineIds: string[] = [];
+  const factoryIds: string[] = [];
+  for (const r of rows as any[]) {
+    if (r.line_id) lineIds.push(r.line_id as string);
+    else factoryIds.push(r.factory_id as string);
+  }
+  return { lineIds, factoryIds };
+}
+
+/** そのラインに入力できるか。scope が null なら常に true。 */
+export function isLineInScope(
+  scope: UserScope | null,
+  line: { id: string; factoryId: string }
+): boolean {
+  if (!scope) return true;
+  return scope.lineIds.includes(line.id) || scope.factoryIds.includes(line.factoryId);
+}
+
+// ===== 利用者（上長の設定） =====
+
+export interface AppUserRow {
+  id: string;
+  loginId: string;
+  name: string;
+  role: string;
+  factory: string | null;
+  department: string | null;
+  portalAdmin: boolean;
+  approverId: string | null;
+  approverName: string | null;
+}
+
+/** 利用者の一覧（上長の設定画面用）。 */
+export async function listAppUsers(): Promise<AppUserRow[]> {
+  await ensureSchema();
+  const sql = getSql();
+  const rows = await sql`
+    SELECT u.id, u.login_id, u.name, u.role, u.factory, u.department, u.portal_admin,
+           u.approver_id, a.name AS approver_name
+    FROM op_users u
+    LEFT JOIN op_users a ON a.id = u.approver_id
+    ORDER BY u.login_id`;
+  return (rows as any[]).map((r) => ({
+    id: r.id as string,
+    loginId: r.login_id as string,
+    name: r.name as string,
+    role: String(r.role ?? "member"),
+    factory: (r.factory as string | null) ?? null,
+    department: (r.department as string | null) ?? null,
+    portalAdmin: r.portal_admin === true,
+    approverId: (r.approver_id as string | null) ?? null,
+    approverName: (r.approver_name as string | null) ?? null,
+  }));
+}
+
+/** 上長（残業申請の承認者）を設定する。null で解除（申請は生産管理部宛てになる）。 */
+export async function setUserApprover(userId: string, approverId: string | null): Promise<void> {
+  await ensureSchema();
+  const sql = getSql();
+  await sql`
+    UPDATE op_users SET approver_id = ${approverId}, updated_at = now()
+    WHERE id = ${userId}`;
+}
+
 // ===== 作業者マスタ =====
 
 export async function listWorkers(
@@ -441,8 +530,15 @@ function mapReport(r: any): Report {
     reasonCode: (r.reason_code as ReasonCode | null) ?? null,
     reason: (r.reason as string | null) ?? null,
     note: (r.note as string | null) ?? null,
+    reportedById: (r.reported_by as string | null) ?? null,
     reportedByName: (r.reported_by_name as string | null) ?? null,
     reportedAt: tsStr(r.reported_at),
+    approverId: (r.approver_id as string | null) ?? null,
+    approverName: (r.approver_name as string | null) ?? null,
+    approvalStatus: (r.approval_status as ApprovalStatus | null) ?? null,
+    approvalByName: (r.approval_by_name as string | null) ?? null,
+    approvalAt: tsStr(r.approval_at),
+    approvalComment: (r.approval_comment as string | null) ?? null,
     members,
     overtimeMinutes: members.reduce((s, m) => s + m.minutes, 0),
   };
@@ -454,7 +550,9 @@ const REPORT_SELECT = `
          r.report_date, r.kind, r.report_time, r.start_time,
          r.planned_qty, r.theoretical_qty, r.actual_qty,
          r.progress_status, r.overtime_decision, r.reason_code, r.reason, r.note,
-         r.reported_at, u.name AS reported_by_name,
+         r.reported_by, r.reported_at, u.name AS reported_by_name,
+         r.approver_id, ap.name AS approver_name,
+         r.approval_status, ab.name AS approval_by_name, r.approval_at, r.approval_comment,
          COALESCE(
            (SELECT json_agg(json_build_object(
                      'id', m.id, 'worker_id', m.worker_id, 'worker_name', w.name,
@@ -468,7 +566,9 @@ const REPORT_SELECT = `
   FROM op_reports r
   JOIN op_lines l ON l.id = r.line_id
   JOIN op_factories f ON f.id = l.factory_id
-  LEFT JOIN op_users u ON u.id = r.reported_by`;
+  LEFT JOIN op_users u ON u.id = r.reported_by
+  LEFT JOIN op_users ap ON ap.id = r.approver_id
+  LEFT JOIN op_users ab ON ab.id = r.approval_by`;
 
 export interface ReportFilter {
   dateFrom?: string | null;
@@ -479,6 +579,8 @@ export interface ReportFilter {
   overtimeDecision?: OvertimeDecision | null;
   /** 生産進捗で絞る */
   progressStatus?: ProgressStatus | null;
+  /** 承認状態で絞る（'pending' | 'approved' | 'rejected'） */
+  approvalStatus?: ApprovalStatus | null;
   limit?: number;
 }
 
@@ -493,8 +595,9 @@ export async function listReports(filter: ReportFilter = {}): Promise<Report[]> 
        AND ($4::uuid IS NULL OR r.line_id = $4)
        AND ($5::text IS NULL OR r.overtime_decision = $5)
        AND ($6::text IS NULL OR r.progress_status = $6)
+       AND ($7::text IS NULL OR r.approval_status = $7)
      ORDER BY r.report_date DESC, f.sort_order, l.sort_order, r.report_time DESC
-     LIMIT $7`,
+     LIMIT $8`,
     [
       filter.dateFrom ?? null,
       filter.dateTo ?? null,
@@ -502,6 +605,7 @@ export async function listReports(filter: ReportFilter = {}): Promise<Report[]> 
       filter.lineId ?? null,
       filter.overtimeDecision ?? null,
       filter.progressStatus ?? null,
+      filter.approvalStatus ?? null,
       Math.min(filter.limit ?? 300, 2000),
     ]
   );
@@ -570,20 +674,36 @@ export interface ReportInput {
 /**
  * 報告を登録する。同じライン・同じ日・同じ時刻の報告は上書きする
  * （打ち間違いを直したいときに、同じ時刻でもう一度出せば直る）。
+ *
+ * 承認ワークフローもここで開始する：
+ * - 実施(do)      … 承認待ち。承認者は報告者の上長（未設定なら NULL＝生産管理部宛て）
+ * - 翌日回し(defer)… 生産管理部の許可待ち（承認者 NULL）
+ * - 対象外(none)   … ワークフローなし
+ * 上書き時は承認状態もリセットされる（内容が変われば承認は取り直し）。
  */
-export async function saveReport(input: ReportInput, userId: string): Promise<string> {
+export async function saveReport(
+  input: ReportInput,
+  userId: string,
+  approverId: string | null
+): Promise<string> {
   await ensureSchema();
   const sql = getSql();
+  const needsApproval = input.overtimeDecision === "do" || input.overtimeDecision === "defer";
+  const approvalStatus = needsApproval ? "pending" : null;
+  // 翌日回しは常に生産管理部宛て。実施は上長宛て（未設定なら生産管理部宛て）
+  const routedApprover = input.overtimeDecision === "do" ? approverId : null;
   const rows = await sql`
     INSERT INTO op_reports
       (line_id, plan_id, report_date, kind, report_time, start_time,
        planned_qty, theoretical_qty, actual_qty, progress_status, overtime_decision,
-       reason_code, reason, note, reported_by, reported_at)
+       reason_code, reason, note, reported_by, reported_at,
+       approver_id, approval_status, approval_by, approval_at, approval_comment)
     VALUES
       (${input.lineId}, ${input.planId}, ${input.reportDate}, ${input.kind}, ${input.reportTime},
        ${input.startTime}, ${input.plannedQty}, ${input.theoreticalQty}, ${input.actualQty},
        ${input.progressStatus}, ${input.overtimeDecision}, ${input.reasonCode}, ${input.reason},
-       ${input.note}, ${userId}, now())
+       ${input.note}, ${userId}, now(),
+       ${routedApprover}, ${approvalStatus}, NULL, NULL, NULL)
     ON CONFLICT (line_id, report_date, report_time) DO UPDATE SET
       plan_id           = EXCLUDED.plan_id,
       kind              = EXCLUDED.kind,
@@ -597,11 +717,78 @@ export async function saveReport(input: ReportInput, userId: string): Promise<st
       reason            = EXCLUDED.reason,
       note              = EXCLUDED.note,
       reported_by       = EXCLUDED.reported_by,
-      reported_at       = now()
+      reported_at       = now(),
+      approver_id       = EXCLUDED.approver_id,
+      approval_status   = EXCLUDED.approval_status,
+      approval_by       = NULL,
+      approval_at       = NULL,
+      approval_comment  = NULL
     RETURNING id`;
   const id = rows[0].id as string;
   await replaceMembers(id, input.overtimeDecision === "do" ? input.members : []);
   return id;
+}
+
+// ===== 承認ワークフロー =====
+
+/**
+ * 承認待ちの一覧。
+ * - 自分宛て：実施(do) で承認者＝自分のもの
+ * - 生産管理部（canEditMaster）：翌日回し(defer) と、上長未設定の実施(do)
+ */
+export async function listPendingApprovals(viewer: {
+  userId: string;
+  canEditMaster: boolean;
+}): Promise<Report[]> {
+  await ensureSchema();
+  const sql = getSql();
+  const rows = await sql.query(
+    `${REPORT_SELECT}
+     WHERE r.approval_status = 'pending'
+       AND (
+         (r.overtime_decision = 'do' AND r.approver_id = $1)
+         OR ($2 AND (r.overtime_decision = 'defer'
+                     OR (r.overtime_decision = 'do' AND r.approver_id IS NULL)))
+       )
+     ORDER BY r.report_date, f.sort_order, l.sort_order, r.report_time`,
+    [viewer.userId, viewer.canEditMaster]
+  );
+  return (rows as any[]).map(mapReport);
+}
+
+/** 自分が出した申請（実施・翌日回し）の直近一覧。承認状態の確認用。 */
+export async function listMyOvertimeRequests(userId: string, limit = 20): Promise<Report[]> {
+  await ensureSchema();
+  const sql = getSql();
+  const rows = await sql.query(
+    `${REPORT_SELECT}
+     WHERE r.reported_by = $1 AND r.overtime_decision IN ('do', 'defer')
+     ORDER BY r.report_date DESC, r.report_time DESC
+     LIMIT $2`,
+    [userId, Math.min(limit, 100)]
+  );
+  return (rows as any[]).map(mapReport);
+}
+
+/**
+ * 承認／差し戻しを記録する。権限判定は呼び出し側（Server Action）で行う。
+ * pending のときだけ更新する（二重承認・追い越しを防ぐ）。戻り値は更新できたか。
+ */
+export async function applyApproval(
+  reportId: string,
+  status: Extract<ApprovalStatus, "approved" | "rejected">,
+  byUserId: string,
+  comment: string | null
+): Promise<boolean> {
+  await ensureSchema();
+  const sql = getSql();
+  const rows = await sql`
+    UPDATE op_reports
+    SET approval_status = ${status}, approval_by = ${byUserId}, approval_at = now(),
+        approval_comment = ${comment}
+    WHERE id = ${reportId} AND approval_status = 'pending'
+    RETURNING id`;
+  return rows.length > 0;
 }
 
 async function replaceMembers(

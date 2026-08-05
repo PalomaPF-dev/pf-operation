@@ -5,6 +5,7 @@ import {
   LayoutDashboard,
   ClipboardList,
   Clock,
+  CheckSquare,
   BarChart3,
   Settings,
   LogOut,
@@ -21,6 +22,7 @@ const NAV_GROUPS: NavGroup[] = [
     title: "日々の運用",
     items: [
       { href: "/report", label: "進捗・残業の入力", icon: ClipboardList },
+      { href: "/approvals", label: "承認・申請", icon: CheckSquare },
       { href: "/reports", label: "報告履歴", icon: Clock },
     ],
   },
