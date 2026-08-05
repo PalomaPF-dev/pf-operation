@@ -10,7 +10,7 @@ export interface LineStatus {
   last: Report | null;
   /** 最終報告時点の差異（理論 − 実績）。未報告なら null */
   gap: number | null;
-  /** その日の残業（分・人数） */
+  /** その日の残業（延べ分・人数）。最終報告の申請内容（人数×時間）から */
   overtimeMinutes: number;
   overtimeHeads: number;
   /** 「いま時点」の理論値（当日のみ。未報告のラインの遅れ検知に使う） */
@@ -63,8 +63,8 @@ export function buildLineStatus(args: {
       : null;
 
   const gap = last ? last.theoreticalQty - last.actualQty : null;
-  const overtimeMinutes = last ? last.overtimeMinutes : 0;
-  const overtimeHeads = last ? last.members.length : 0;
+  const overtimeMinutes = last ? last.overtimeManMinutes : 0;
+  const overtimeHeads = last ? last.overtimeHeadcount : 0;
 
   let state: LineStatus["state"];
   if (!plan && !last) state = isFuture ? "no_plan" : started ? "unreported" : "no_plan";

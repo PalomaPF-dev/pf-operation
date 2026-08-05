@@ -151,15 +151,7 @@ export interface DailyPlan {
   note: string | null;
 }
 
-export interface OvertimeMember {
-  id: string;
-  workerId: string;
-  workerName: string;
-  employeeNo: string;
-  minutes: number;
-}
-
-/** 定期報告1件（進捗チェック／終業後）。残業の申請内容も同じ1件に含める。 */
+/** 定期報告1件（進捗チェック／終業後）。残業の申請内容（人数×時間）も同じ1件に含める。 */
 export interface Report {
   id: string;
   lineId: string;
@@ -195,9 +187,12 @@ export interface Report {
   approvalByName: string | null;
   approvalAt: string | null;
   approvalComment: string | null;
-  members: OvertimeMember[];
-  /** 残業時間の合計（分） */
-  overtimeMinutes: number;
+  /** 残業の人数（実施のとき） */
+  overtimeHeadcount: number;
+  /** 一人当たりの残業時間（分） */
+  overtimeMinutesPerPerson: number;
+  /** 延べ残業（人・分）＝ 人数 × 一人当たりの分 */
+  overtimeManMinutes: number;
 }
 
 /**
@@ -220,15 +215,20 @@ export function gapOf(report: { theoreticalQty: number; actualQty: number }): nu
   return report.theoreticalQty - report.actualQty;
 }
 
+/**
+ * グループ長（ラインの残業有無の申請者）。
+ * 社員番号がログインID（ポータルの社員番号）と一致すると、入力画面がその担当ラインに絞られる。
+ * ※ DB のテーブル名は歴史的経緯で op_workers のまま。
+ */
 export interface Worker {
   id: string;
   factoryId: string;
   factoryName: string;
+  /** 担当ライン。未設定なら工場全体のラインに入力できる */
   lineId: string | null;
   lineName: string | null;
   employeeNo: string;
   name: string;
-  active: boolean;
 }
 
 /** 集計行（工場×職場、または工場のみ）。 */

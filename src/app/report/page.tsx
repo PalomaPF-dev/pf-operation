@@ -8,7 +8,6 @@ import {
   listFactories,
   listLines,
   listReportsOfDay,
-  listWorkers,
 } from "@/lib/db";
 import { saveReportAction, deleteReportAction } from "@/lib/actions";
 import { formatDate, formatDateTime, formatHours, nowJstMinutes, minutesToTime, todayString } from "@/lib/format";
@@ -43,14 +42,12 @@ export default async function ReportPage({
 
   let factories: Awaited<ReturnType<typeof listFactories>>;
   let lines: Awaited<ReturnType<typeof listLines>>;
-  let workers: Awaited<ReturnType<typeof listWorkers>>;
   let scope: Awaited<ReturnType<typeof getUserScope>>;
   try {
-    [factories, lines, workers, scope] = await Promise.all([
+    [factories, lines, scope] = await Promise.all([
       listFactories(),
       listLines({ activeOnly: true }),
-      listWorkers({ activeOnly: true }),
-      // 作業者マスタに載っている人は担当ラインだけに絞る（載っていなければ全ライン）
+      // グループ長マスタに載っている人は担当ラインだけに絞る（載っていなければ全ライン）
       getUserScope(session.loginId),
     ]);
   } catch (e) {
@@ -74,7 +71,7 @@ export default async function ReportPage({
       <div className="p-4 sm:p-6">
         <PageHeader title="進捗・残業の入力" />
         <div className="rounded-xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500">
-          担当ラインが登録されていません。作業者マスタの所属ライン（社員番号 {session.loginId}）を
+          担当ラインが登録されていません。グループ長マスタの担当ライン（社員番号 {session.loginId}）を
           ご確認ください。
         </div>
       </div>
@@ -137,7 +134,6 @@ export default async function ReportPage({
           key={`${date}-${line?.id ?? "none"}`}
           factories={factories}
           lines={lines}
-          workers={workers}
           defaults={{
             date,
             factoryId,
@@ -196,27 +192,13 @@ export default async function ReportPage({
                   </span>
                   <span className="ml-auto flex items-center gap-1.5 text-xs text-slate-500">
                     残業：{OVERTIME_DECISION_LABEL[r.overtimeDecision]}
-                    {r.overtimeMinutes > 0
-                      ? `（${r.members.length}名 / ${formatHours(r.overtimeMinutes)}）`
+                    {r.overtimeManMinutes > 0
+                      ? `（${r.overtimeHeadcount}名 × ${r.overtimeMinutesPerPerson}分 ＝ ${formatHours(r.overtimeManMinutes)}）`
                       : ""}
                     <ApprovalBadge status={r.approvalStatus} />
                   </span>
                 </div>
 
-                {r.members.length > 0 ? (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {r.members.map((m) => (
-                      <span
-                        key={m.id}
-                        className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-700"
-                      >
-                        <span className="tabular-nums text-slate-500">{m.employeeNo}</span>
-                        {m.workerName}
-                        <span className="tabular-nums font-medium">{formatHours(m.minutes)}</span>
-                      </span>
-                    ))}
-                  </div>
-                ) : null}
 
                 {r.reason || r.note ? (
                   <p className="mt-2 text-xs text-slate-600">

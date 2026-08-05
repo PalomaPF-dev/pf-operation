@@ -3,12 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Lock } from "lucide-react";
-import {
-  formatBreaks,
-  hourlyRate,
-  suggestOvertimeMinutes,
-  theoreticalAt,
-} from "@/lib/capacity";
+import { formatBreaks, hourlyRate, theoreticalAt } from "@/lib/capacity";
 import { formatHours } from "@/lib/format";
 import {
   OVERTIME_DECISIONS,
@@ -22,7 +17,6 @@ import {
   type OvertimeDecision,
   type ProgressStatus,
   type ReportKind,
-  type Worker,
 } from "@/lib/types";
 import SubmitButton from "./SubmitButton";
 
@@ -59,13 +53,11 @@ const inputCls =
 export default function ReportForm({
   factories,
   lines,
-  workers,
   defaults,
   action,
 }: {
   factories: Factory[];
   lines: Line[];
-  workers: Worker[];
   defaults: ReportDefaults;
   action: (fd: FormData) => void | Promise<void>;
 }) {
@@ -91,8 +83,11 @@ export default function ReportForm({
   const [actualTouched, setActualTouched] = useState(false);
   const [progressStatus, setProgressStatus] = useState<ProgressStatus | null>(null);
   const [decision, setDecision] = useState<OvertimeDecision | null>(null);
-  const [bulkMinutes, setBulkMinutes] = useState("60");
-  const [selected, setSelected] = useState<Record<string, number>>({});
+  // 残業の申請内容（人数 × 一人当たりの分）。人数はその日の投入人数を初期値にする
+  const [otHeadcount, setOtHeadcount] = useState(
+    String(Math.round(defaults.headcount ?? line?.headcount ?? 0) || "")
+  );
+  const [otMinutes, setOtMinutes] = useState("60");
 
   const planned = Number(plannedQty);
   const theoretical = useMemo(() => {
@@ -117,22 +112,20 @@ export default function ReportForm({
   const qty = QTY_LABEL[line?.lineType ?? "assembly"];
   const isProcess = line?.lineType === "process";
 
-  const suggested = line ? suggestOvertimeMinutes(line, Math.max(gap, shortfallVsPlan)) : null;
+  const otHeads = Math.max(0, Math.round(Number(otHeadcount)) || 0);
+  const otMins = Math.max(0, Math.round(Number(otMinutes)) || 0);
+  const totalMinutes = otHeads * otMins;
 
-  // 選んだラインの工場の作業者だけを対象にする（同じライン所属を上に並べる）
-  const candidates = useMemo(() => {
-    if (!line) return [];
-    return workers
-      .filter((w) => w.factoryId === line.factoryId)
-      .sort((a, b) => {
-        const am = a.lineId === line.id ? 0 : 1;
-        const bm = b.lineId === line.id ? 0 : 1;
-        return am - bm || a.employeeNo.localeCompare(b.employeeNo);
-      });
-  }, [workers, line]);
-
-  const totalMinutes = candidates.reduce((s, w) => s + (selected[w.id] ?? 0), 0);
-  const selectedCount = candidates.filter((w) => (selected[w.id] ?? 0) > 0).length;
+  // 残業中の時間当たり出来高。残業できる人員が在籍数より少なければ、人数比で落ちるとみなす
+  const baseRate = line ? hourlyRate({ ...line, startTime }) : 0;
+  const otRatio = line && line.headcount > 0 && otHeads > 0 ? otHeads / line.headcount : 1;
+  const otRate = baseRate * otRatio;
+  /** この申請内容（人数×時間）で見込める出来高 */
+  const otExpectedQty = Math.round((otRate * otMins) / 60);
+  const shortage = Math.max(gap, shortfallVsPlan);
+  /** 不足分を取り戻すのに必要な一人当たり時間（この人数のとき）。5分単位に切り上げ */
+  const neededMinutes =
+    otRate > 0 && shortage > 0 ? Math.ceil(((shortage / otRate) * 60) / 5) * 5 : null;
 
   /** 日付・工場・ラインを変えたら、その組み合わせのデータを読み直す。 */
   const navigate = (next: { date?: string; factoryId?: string; lineId?: string }) => {
@@ -415,105 +408,78 @@ export default function ReportForm({
           </div>
         ) : null}
 
-        {/* 残業の対象者 */}
+        {/* 残業の申請内容（人数 × 一人当たりの時間） */}
         {effectiveDecision === "do" ? (
           <div className="rounded-xl border border-slate-200 bg-white p-4">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-sm font-semibold text-slate-900">
-                残業する対象者
-                <span className="ml-2 text-xs font-normal text-slate-500">
-                  {selectedCount}名 / 合計 {formatHours(totalMinutes)}
-                  {suggested !== null && suggested > 0 ? `（目安 ${suggested}分／人）` : ""}
-                </span>
-              </h3>
-              <div className="flex flex-wrap items-center gap-2 text-xs">
-                <label className="flex items-center gap-1 text-slate-600">
-                  一括
+            <h3 className="mb-3 text-sm font-semibold text-slate-900">残業の申請内容</h3>
+            <div className="flex flex-wrap items-end gap-4">
+              <Label text="残業する人数" required>
+                <span className="flex items-center gap-1.5">
                   <input
                     type="number"
-                    min={0}
-                    step={5}
-                    value={bulkMinutes}
-                    onChange={(e) => setBulkMinutes(e.target.value)}
-                    className="w-20 rounded-lg border border-slate-300 px-2 py-1 text-right text-sm tabular-nums"
+                    name="overtimeHeadcount"
+                    min={1}
+                    step={1}
+                    inputMode="numeric"
+                    value={otHeadcount}
+                    onChange={(e) => setOtHeadcount(e.target.value)}
+                    required
+                    className={`${inputCls} w-24 text-right tabular-nums`}
                   />
-                  分
-                </label>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setSelected(
-                      Object.fromEntries(
-                        candidates.map((w) => [w.id, Number(bulkMinutes) || 60])
-                      )
-                    )
-                  }
-                  className="rounded-lg border border-slate-300 px-2 py-1 font-medium text-slate-700 hover:bg-slate-50"
-                >
-                  全員に設定
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSelected({})}
-                  className="rounded-lg border border-slate-300 px-2 py-1 font-medium text-slate-700 hover:bg-slate-50"
-                >
-                  クリア
-                </button>
-              </div>
-            </div>
-
-            {candidates.length === 0 ? (
-              <p className="text-sm text-slate-500">
-                この工場に作業者が登録されていません。マスタ設定から登録してください。
+                  <span className="text-sm text-slate-600">名</span>
+                </span>
+              </Label>
+              <Label text="一人当たりの残業時間" required>
+                <span className="flex items-center gap-1.5">
+                  <input
+                    type="number"
+                    name="overtimeMinutes"
+                    min={5}
+                    step={5}
+                    inputMode="numeric"
+                    value={otMinutes}
+                    onChange={(e) => setOtMinutes(e.target.value)}
+                    required
+                    className={`${inputCls} w-24 text-right tabular-nums`}
+                  />
+                  <span className="text-sm text-slate-600">分</span>
+                </span>
+              </Label>
+              <p className="pb-2 text-sm text-slate-600">
+                延べ <strong className="tabular-nums">{formatHours(totalMinutes)}</strong>
+                （{otHeads}名 × {otMins}分）
               </p>
-            ) : (
-              <ul className="divide-y divide-slate-100">
-                {candidates.map((w) => {
-                  const on = (selected[w.id] ?? 0) > 0;
-                  return (
-                    <li key={w.id} className="flex flex-wrap items-center gap-3 py-2">
-                      <label className="flex min-w-[14rem] flex-1 items-center gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          name={`worker_${w.id}`}
-                          checked={on}
-                          onChange={(e) =>
-                            setSelected((prev) => {
-                              const next = { ...prev };
-                              if (e.target.checked)
-                                next[w.id] = prev[w.id] || Number(bulkMinutes) || 60;
-                              else delete next[w.id];
-                              return next;
-                            })
-                          }
-                          className="h-4 w-4 rounded border-slate-300 text-brand-700 focus:ring-brand-600"
-                        />
-                        <span className="tabular-nums text-slate-500">{w.employeeNo}</span>
-                        <span className="font-medium text-slate-900">{w.name}</span>
-                        {w.lineName ? (
-                          <span className="text-xs text-slate-400">{w.lineName}</span>
-                        ) : null}
-                      </label>
-                      <label className="flex items-center gap-1 text-xs text-slate-600">
-                        <input
-                          type="number"
-                          min={0}
-                          step={5}
-                          name={`minutes_${w.id}`}
-                          value={selected[w.id] ?? ""}
-                          onChange={(e) =>
-                            setSelected((prev) => ({ ...prev, [w.id]: Number(e.target.value) }))
-                          }
-                          disabled={!on}
-                          className="w-24 rounded-lg border border-slate-300 px-2 py-1.5 text-right text-sm tabular-nums disabled:bg-slate-50"
-                        />
-                        分
-                      </label>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
+            </div>
+            {otRate > 0 ? (
+              <p className="mt-2 text-xs text-slate-600">
+                この内容での見込み出来高：
+                <strong className="tabular-nums text-slate-900">
+                  約{otExpectedQty}
+                  {qty.unit}
+                </strong>
+                <span className="ml-1 text-slate-500">
+                  （時間当たり {baseRate.toFixed(1)}
+                  {qty.unit}/h × 人数比 {otHeads}/{line?.headcount ?? 0} × {otMins}分）
+                </span>
+                {shortage > 0 ? (
+                  otExpectedQty >= shortage ? (
+                    <span className="ml-2 text-emerald-700">
+                      不足 {shortage}
+                      {qty.unit} を取り戻せる見込みです
+                    </span>
+                  ) : (
+                    <span className="ml-2 text-rose-600">
+                      不足 {shortage}
+                      {qty.unit} には足りません（この人数なら 約{neededMinutes}分/人 必要）
+                    </span>
+                  )
+                ) : null}
+              </p>
+            ) : null}
+            <p className="mt-1 text-xs text-slate-500">
+              人数はラインの在籍数（投入人数）を初期値にしています。実際に残業できる人数に直すと、
+              見込み出来高も人数比で計算し直します。
+            </p>
           </div>
         ) : null}
 

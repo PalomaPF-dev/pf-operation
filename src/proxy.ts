@@ -17,5 +17,5 @@ export function proxy() {
 }
 
 export const config = {
-  matcher: ["/", "/report", "/reports", "/summary", "/masters"],
+  matcher: ["/", "/dashboard", "/report", "/reports", "/approvals", "/summary", "/masters"],
 };

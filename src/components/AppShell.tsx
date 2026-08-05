@@ -16,9 +16,6 @@ import { PORTAL_CONTACT_URL, PORTAL_URL } from "@/lib/portal";
 
 const NAV_GROUPS: NavGroup[] = [
   {
-    items: [{ href: "/", label: "ダッシュボード", icon: LayoutDashboard }],
-  },
-  {
     title: "日々の運用",
     items: [
       { href: "/report", label: "進捗・残業の入力", icon: ClipboardList },
@@ -29,6 +26,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     title: "集計・設定",
     items: [
+      { href: "/dashboard", label: "ダッシュボード", icon: LayoutDashboard },
       { href: "/summary", label: "集計", icon: BarChart3 },
       { href: "/masters", label: "マスタ設定", icon: Settings },
     ],

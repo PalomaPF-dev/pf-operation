@@ -102,8 +102,8 @@ export default async function ApprovalsPage() {
                     <th className="px-3 py-2 text-left">日付</th>
                     <th className="px-3 py-2 text-left">工場 / ライン</th>
                     <th className="px-3 py-2 text-left">申請者</th>
-                    <th className="px-3 py-2 text-right">人数</th>
-                    <th className="px-3 py-2 text-right">残業合計</th>
+                    <th className="px-3 py-2 text-right">人数 × 時間</th>
+                    <th className="px-3 py-2 text-right">延べ</th>
                     <th className="px-3 py-2 text-left">承認</th>
                   </tr>
                 </thead>
@@ -115,9 +115,11 @@ export default async function ApprovalsPage() {
                         {r.factoryName} / {r.lineName}
                       </td>
                       <td className="px-3 py-2">{r.reportedByName ?? "—"}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{r.members.length}名</td>
                       <td className="px-3 py-2 text-right tabular-nums">
-                        {formatHours(r.overtimeMinutes)}
+                        {r.overtimeHeadcount}名 × {r.overtimeMinutesPerPerson}分
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums">
+                        {formatHours(r.overtimeManMinutes)}
                       </td>
                       <td className="px-3 py-2 text-xs text-slate-500">
                         {r.approvalByName ?? "—"}（{formatDateTime(r.approvalAt)}）
@@ -222,21 +224,14 @@ function ApprovalCard({ report: r }: { report: Report }) {
         {r.reason ? <span className="ml-1">{r.reason}</span> : null}
       </p>
 
-      {r.members.length > 0 ? (
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          <span className="text-xs text-slate-500">
-            対象 {r.members.length}名 / 合計 {formatHours(r.overtimeMinutes)}：
-          </span>
-          {r.members.map((m) => (
-            <span
-              key={m.id}
-              className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-700"
-            >
-              {m.workerName}
-              <span className="tabular-nums font-medium">{formatHours(m.minutes)}</span>
-            </span>
-          ))}
-        </div>
+      {r.overtimeManMinutes > 0 ? (
+        <p className="mt-2 text-sm text-slate-700">
+          残業：
+          <strong className="tabular-nums">
+            {r.overtimeHeadcount}名 × {r.overtimeMinutesPerPerson}分
+          </strong>
+          <span className="ml-1 text-slate-500">（延べ {formatHours(r.overtimeManMinutes)}）</span>
+        </p>
       ) : null}
       {isDefer ? (
         <p className="mt-2 text-xs text-slate-600">
