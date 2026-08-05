@@ -2,6 +2,7 @@ import { getSql } from "./neon";
 import { ensureSchema } from "./schema";
 import { formatTime, toDateString } from "./format";
 import { plannedManHoursOf } from "./capacity";
+import FACTORY_LINES from "@/data/factoryLines.json";
 import type {
   BreakSpan,
   DailyPlan,
@@ -225,6 +226,58 @@ async function replaceBreaks(lineId: string, breaks: BreakSpan[]): Promise<void>
     SELECT ${lineId}::uuid, x.s::time, x.e::time
     FROM unnest(${starts}::text[], ${ends}::text[]) AS x(s, e)
     ON CONFLICT (line_id, start_time) DO UPDATE SET end_time = EXCLUDED.end_time`;
+}
+
+// ===== 受領マスタの取り込み =====
+
+/**
+ * 生産管理部から受領した「工場・ラインマスター」を取り込む（冪等）。
+ *
+ * 工場は名前、ラインは（工場・ライン名）で突き合わせ、既にあれば上書きする。
+ * 何度実行しても同じ状態になる。手で直した器種・人員も受領値に戻る点に注意。
+ * 種別（組立/前工程）と稼働状態は画面で調整するものなので、既存行では変更しない。
+ */
+export async function importFactoryLines(): Promise<{ factories: number; lines: number }> {
+  await ensureSchema();
+  const sql = getSql();
+  const breaks: BreakSpan[] = FACTORY_LINES.breaks.map(([start, end]) => ({ start, end }));
+
+  let factoryOrder = 0;
+  let lineCount = 0;
+  for (const f of FACTORY_LINES.factories) {
+    factoryOrder += 10;
+    const factoryRows = await sql`
+      INSERT INTO op_factories (name, code, sort_order)
+      VALUES (${f.name}, ${f.code}, ${factoryOrder})
+      ON CONFLICT (name) DO UPDATE SET
+        code = EXCLUDED.code, sort_order = EXCLUDED.sort_order
+      RETURNING id`;
+    const factoryId = factoryRows[0].id as string;
+
+    let order = 0;
+    for (const line of f.lines) {
+      order += 10;
+      const lineRows = await sql`
+        INSERT INTO op_lines
+          (factory_id, name, product, line_type, capacity_per_day, work_hours, start_time,
+           headcount, note, active, sort_order)
+        VALUES
+          (${factoryId}, ${line.name}, ${line.product}, 'assembly', ${line.capacityPerDay},
+           ${line.workHours}, ${FACTORY_LINES.startTime}, ${line.headcount}, ${line.note},
+           true, ${order})
+        ON CONFLICT (factory_id, name) DO UPDATE SET
+          product          = EXCLUDED.product,
+          capacity_per_day = EXCLUDED.capacity_per_day,
+          work_hours       = EXCLUDED.work_hours,
+          headcount        = EXCLUDED.headcount,
+          note             = EXCLUDED.note,
+          sort_order       = EXCLUDED.sort_order
+        RETURNING id`;
+      await replaceBreaks(lineRows[0].id as string, breaks);
+      lineCount += 1;
+    }
+  }
+  return { factories: FACTORY_LINES.factories.length, lines: lineCount };
 }
 
 // ===== 作業者マスタ =====

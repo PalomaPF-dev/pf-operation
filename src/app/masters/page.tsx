@@ -6,6 +6,7 @@ import {
   deleteFactoryAction,
   deleteLineAction,
   deleteWorkerAction,
+  importMasterAction,
   saveCapacitiesAction,
   saveFactoryAction,
   saveLineAction,
@@ -120,6 +121,28 @@ export default async function MastersPage({
 
 /* ===== 工場・ラインマスター（工場ごとの表） ===== */
 
+/** 受領した「工場・ラインマスター」（4工場33ライン）の一括取り込み。編集できる人にだけ出す。 */
+function ImportBar() {
+  return (
+    <form
+      action={importMasterAction}
+      className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3"
+    >
+      <p className="text-xs text-slate-600">
+        生産管理部から受領した工場・ラインマスター（大口・清洲・直方・恵那の33ライン）を
+        一括で取り込めます。何度実行しても同じ状態になります。
+      </p>
+      <SubmitButton
+        pendingLabel="取り込み中…"
+        confirm="受領マスタ（4工場33ライン）を取り込みます。同じ工場・ライン名の行は受領値で上書きされます（画面で直した器種・人員・実力も戻ります）。よろしいですか？"
+        className="rounded-lg border border-brand-300 bg-brand-50 px-4 py-2 text-sm font-medium text-brand-800 hover:bg-brand-100 disabled:opacity-60"
+      >
+        受領マスタを取り込む
+      </SubmitButton>
+    </form>
+  );
+}
+
 const TH = "px-3 py-2 text-left text-xs font-semibold text-slate-600 whitespace-nowrap";
 const TD = "px-3 py-2 text-sm text-slate-800 align-middle";
 
@@ -134,17 +157,18 @@ function MasterTable({
 }) {
   if (factories.length === 0) {
     return (
-      <p className="text-sm text-slate-500">
-        先に
-        <Link href="/masters?tab=factories" className="mx-1 text-brand-700 underline">
-          工場
-        </Link>
-        を登録してください。
-      </p>
+      <div className="space-y-4">
+        {canEdit ? <ImportBar /> : null}
+        <p className="text-sm text-slate-500">
+          工場・ラインがまだ登録されていません。
+          {canEdit ? "上の「受領マスタを取り込む」で4工場33ラインを一括登録できます。" : null}
+        </p>
+      </div>
     );
   }
   return (
     <div className="space-y-6">
+      {canEdit ? <ImportBar /> : null}
       {factories.map((f) => (
         <FactoryTable
           key={f.id}
