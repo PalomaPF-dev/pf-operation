@@ -822,8 +822,12 @@ function UsersTab({ users, canEdit }: { users: AppUserRow[]; canEdit: boolean })
   return (
     <div className="space-y-3">
       <p className="text-xs text-slate-600">
-        残業「実施」の申請は、ここで設定した<strong className="font-medium">上長</strong>
-        が承認します（未設定の場合は生産管理部が承認）。「翌日回し」は設定によらず生産管理部の許可になります。
+        残業「実施」の申請は<strong className="font-medium">上長（承認者）</strong>
+        が承認し、承認済みが生産管理部へ届きます（未設定の場合は生産管理部が承認）。
+        上長は<strong className="font-medium">ポータルの承認者（上司）設定</strong>
+        から本人のログイン時に自動で反映されます。ここでの手動設定は、ポータル側が未設定の間の
+        つなぎです（次回ログイン時にポータルの設定で上書きされます）。
+        「翌日回し」は設定によらず生産管理部の許可になります。
         入力できるラインはグループ長マスタの登録（社員番号の一致）で決まります。
       </p>
       <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
