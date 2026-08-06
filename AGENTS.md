@@ -26,7 +26,7 @@ Notably in this repo: the `middleware` file convention is deprecated and renamed
 - 残業の承認ワークフロー：**承認が要るのは翌日回し(defer) だけ**（生産管理部＝`canEditMaster` が許可）。
   実施(do) は承認不要で、生産管理部へ報告として届く（`approval_status` は NULL）。
   権限判定は `approveReportAction` に集約。報告を上書きすると許可は pending に戻る。
-  翌日回しの許可画面では `DelayVisual` で遅れの状況（計画・理論・実績と当日の推移）を図示する。
+  翌日回しの許可画面では `DelayVisual` で遅れの理由（理由区分・理由の本文）を主役に見せる。
 - 残業の申請内容は「人数 × 一人当たりの分」（`op_reports.overtime_headcount / overtime_minutes`）。
   対象者個人は記録しない（`op_overtime_members` は旧形式で、新規には書かない）。
 - 理論値の計算は `src/lib/capacity.ts` に集約。休憩は実時刻で差し引き、稼働時間(H)で頭打ちにする。

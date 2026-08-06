@@ -1,12 +1,7 @@
 import Link from "next/link";
 import { Inbox } from "lucide-react";
 import { requireAdminSession } from "@/lib/session";
-import {
-  listMyOvertimeRequests,
-  listPendingApprovals,
-  listReports,
-  listReportsOfDays,
-} from "@/lib/db";
+import { listMyOvertimeRequests, listPendingApprovals, listReports } from "@/lib/db";
 import { approveReportAction } from "@/lib/actions";
 import { addDays, formatDate, formatDateTime, formatHours, todayString } from "@/lib/format";
 import { OVERTIME_DECISION_LABEL, QTY_LABEL, REASON_LABEL, type Report } from "@/lib/types";
@@ -25,13 +20,12 @@ const inputCls =
 /**
  * 承認・申請。
  * - 実施(do)      … 承認は不要。生産管理部へ「報告」として届く（理由の把握が目的）
- * - 翌日回し(defer)… 生産管理部が許可する（遅れの状況を図で見て判断する）
+ * - 翌日回し(defer)… 生産管理部が許可する（遅れの理由を読んで判断する）
  */
 export default async function ApprovalsPage() {
   const session = await requireAdminSession();
 
   let pending: Report[], mine: Report[], delivered: Report[];
-  let historyByKey = new Map<string, Report[]>();
   try {
     [pending, mine, delivered] = await Promise.all([
       listPendingApprovals({ canEditMaster: session.canEditMaster }),
@@ -45,10 +39,6 @@ export default async function ApprovalsPage() {
           })
         : Promise.resolve([]),
     ]);
-    // 許可待ちの判断材料として、その日の推移をまとめて引く（1クエリ）
-    historyByKey = await listReportsOfDays(
-      pending.map((r) => ({ lineId: r.lineId, reportDate: r.reportDate }))
-    );
   } catch (e) {
     console.error("[approvals]", e);
     return (
@@ -81,11 +71,7 @@ export default async function ApprovalsPage() {
           ) : (
             <ul className="space-y-3">
               {pending.map((r) => (
-                <ApprovalCard
-                  key={r.id}
-                  report={r}
-                  history={historyByKey.get(`${r.lineId}|${r.reportDate}`)}
-                />
+                <ApprovalCard key={r.id} report={r} />
               ))}
             </ul>
           )}
@@ -115,7 +101,7 @@ export default async function ApprovalsPage() {
                     <th className="px-3 py-2 text-left">申請者</th>
                     <th className="px-3 py-2 text-right">人数 × 時間</th>
                     <th className="px-3 py-2 text-right">延べ</th>
-                    <th className="px-3 py-2 text-left">理由</th>
+                    <th className="px-3 py-2 text-left">残業の理由</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -132,11 +118,20 @@ export default async function ApprovalsPage() {
                       <td className="px-3 py-2 text-right tabular-nums">
                         {formatHours(r.overtimeManMinutes)}
                       </td>
-                      <td className="px-3 py-2 text-xs text-slate-600">
+                      <td className="px-3 py-2 align-top">
                         {r.reasonCode ? (
-                          <span className="font-medium">{REASON_LABEL[r.reasonCode]}</span>
+                          <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-900">
+                            {REASON_LABEL[r.reasonCode]}
+                          </span>
                         ) : null}
-                        {r.reason ? <span className="ml-1">{r.reason}</span> : null}
+                        {r.reason ? (
+                          <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-slate-700">
+                            {r.reason}
+                          </p>
+                        ) : null}
+                        {!r.reasonCode && !r.reason ? (
+                          <span className="text-xs text-slate-400">記載なし</span>
+                        ) : null}
                       </td>
                     </tr>
                   ))}
@@ -216,10 +211,9 @@ export default async function ApprovalsPage() {
 
 /**
  * 翌日回しの許可待ち1件。
- * 「なぜ遅れたのか」を判断できるよう、数字だけでなく DelayVisual で
- * 計画・理論・実績の関係と当日の推移を図で見せる。
+ * 判断の要は「なぜ遅れたのか」なので、DelayVisual で理由を大きく見せる。
  */
-function ApprovalCard({ report: r, history }: { report: Report; history?: Report[] }) {
+function ApprovalCard({ report: r }: { report: Report }) {
   const qty = QTY_LABEL[r.lineType];
   return (
     <li className="rounded-xl border border-sky-200 bg-white p-4">
@@ -235,8 +229,8 @@ function ApprovalCard({ report: r, history }: { report: Report; history?: Report
         </span>
       </div>
 
-      {/* 遅れの状況（帯グラフ・理由・当日の推移） */}
-      <DelayVisual report={r} history={history} />
+      {/* 遅れの理由（許可の判断材料） */}
+      <DelayVisual report={r} />
 
       <p className="mt-2 text-xs text-slate-600">
         {OVERTIME_DECISION_LABEL.defer}：残業せず、残った{qty.name}を翌日の計画に回します。
