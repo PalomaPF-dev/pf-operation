@@ -152,9 +152,7 @@ export async function saveReportAction(fd: FormData): Promise<void> {
       overtimeHeadcount,
       overtimeMinutesPerPerson,
     },
-    session.userId,
-    // 実施の承認先は本人の上長（ポータルの承認者設定から同期。未設定なら生産管理部宛て）
-    session.approverId
+    session.userId
   );
 
   revalidatePath("/dashboard");
@@ -164,7 +162,7 @@ export async function saveReportAction(fd: FormData): Promise<void> {
 }
 
 /* ===== 承認ワークフロー =====
-   実施(do)      … 承認者＝報告者の上長（未設定なら生産管理部）。承認済みが生産管理部へ届く。
+   実施(do)      … 承認は不要。生産管理部へ報告として届く（理由の把握が目的）。
    翌日回し(defer)… 生産管理部（マスタ編集権限者）が許可する。 */
 
 export async function approveReportAction(fd: FormData): Promise<void> {
@@ -178,20 +176,12 @@ export async function approveReportAction(fd: FormData): Promise<void> {
   if (!report) throw new Error("申請が見つかりません");
   if (report.approvalStatus !== "pending") throw new Error("この申請は処理済みです");
 
-  // 権限：実施は指名された上長（生産管理部は不在時の受け皿として常に可）。
-  //       翌日回しは生産管理部のみ。
-  const allowed =
-    report.overtimeDecision === "do"
-      ? report.approverId === session.userId || session.canEditMaster
-      : report.overtimeDecision === "defer"
-        ? session.canEditMaster
-        : false;
-  if (!allowed) {
-    throw new Error(
-      report.overtimeDecision === "defer"
-        ? "翌日回しの許可は生産管理部の管理者のみ行えます"
-        : "この申請の承認者ではありません"
-    );
+  // 許可が要るのは翌日回しだけ。判定できるのは生産管理部（マスタ編集権限者）のみ
+  if (report.overtimeDecision !== "defer") {
+    throw new Error("この報告に承認は不要です");
+  }
+  if (!session.canEditMaster) {
+    throw new Error("翌日回しの許可は生産管理部の管理者のみ行えます");
   }
   if (verdict === "reject" && !comment) {
     throw new Error("差し戻しの理由を記載してください");

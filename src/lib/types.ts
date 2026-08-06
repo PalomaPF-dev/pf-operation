@@ -59,14 +59,14 @@ export function isOvertimeDecision(v: unknown): v is OvertimeDecision {
 
 /**
  * 承認ワークフローの状態。
- * 実施(do) は報告者の上長（未設定なら生産管理部）が承認し、承認済みが生産管理部へ届く。
- * 翌日回し(defer) は生産管理部が許可する。対象外(none) はワークフローなし（null）。
+ * 承認が要るのは翌日回し(defer)＝生産管理部の許可だけ。
+ * 実施(do) は承認不要で、生産管理部へ報告として届く（対象外(none) と同じく null）。
  */
 export type ApprovalStatus = "pending" | "approved" | "rejected";
 
 export const APPROVAL_STATUS_LABEL: Record<ApprovalStatus, string> = {
-  pending: "承認待ち",
-  approved: "承認済み",
+  pending: "許可待ち",
+  approved: "許可済み",
   rejected: "差し戻し",
 };
 
@@ -178,8 +178,8 @@ export interface Report {
   reportedById: string | null;
   reportedByName: string | null;
   reportedAt: string | null;
-  /* ----- 承認ワークフロー（実施＝上長承認 → 生産管理部へ／翌日回し＝生産管理部の許可） ----- */
-  /** 承認者（上長）。NULL は生産管理部宛て（翌日回し、または上長未設定の実施） */
+  /* ----- 承認ワークフロー（翌日回しのみ。実施は承認不要の報告） ----- */
+  /** 承認者。翌日回しは生産管理部宛てのため常に NULL */
   approverId: string | null;
   approverName: string | null;
   /** 承認状態。NULL は承認対象外（残業なし） */

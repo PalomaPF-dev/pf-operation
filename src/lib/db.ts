@@ -548,23 +548,19 @@ export interface ReportInput {
  * 報告を登録する。同じライン・同じ日・同じ時刻の報告は上書きする
  * （打ち間違いを直したいときに、同じ時刻でもう一度出せば直る）。
  *
- * 承認ワークフローもここで開始する：
- * - 実施(do)      … 承認待ち。承認者は報告者の上長（未設定なら NULL＝生産管理部宛て）
- * - 翌日回し(defer)… 生産管理部の許可待ち（承認者 NULL）
+ * 承認が要るのは翌日回しだけ：
+ * - 実施(do)      … 承認は不要。生産管理部へ「報告」として届く（理由の把握が目的）
+ * - 翌日回し(defer)… 生産管理部の許可待ち（承認者 NULL＝生産管理部宛て）
  * - 対象外(none)   … ワークフローなし
- * 上書き時は承認状態もリセットされる（内容が変われば承認は取り直し）。
+ * 上書き時は承認状態もリセットされる（内容が変われば許可は取り直し）。
  */
-export async function saveReport(
-  input: ReportInput,
-  userId: string,
-  approverId: string | null
-): Promise<string> {
+export async function saveReport(input: ReportInput, userId: string): Promise<string> {
   await ensureSchema();
   const sql = getSql();
-  const needsApproval = input.overtimeDecision === "do" || input.overtimeDecision === "defer";
-  const approvalStatus = needsApproval ? "pending" : null;
-  // 翌日回しは常に生産管理部宛て。実施は上長宛て（未設定なら生産管理部宛て）
-  const routedApprover = input.overtimeDecision === "do" ? approverId : null;
+  // 残業を実施する場合は報告のみ。許可が要るのは翌日回しだけ
+  const approvalStatus = input.overtimeDecision === "defer" ? "pending" : null;
+  // 翌日回しは生産管理部宛て（個人を指名しない）
+  const routedApprover = null;
   const otHeads = input.overtimeDecision === "do" ? input.overtimeHeadcount : 0;
   const otMinutes = input.overtimeDecision === "do" ? input.overtimeMinutesPerPerson : 0;
   const rows = await sql`
@@ -612,31 +608,54 @@ export async function saveReport(
 // ===== 承認ワークフロー =====
 
 /**
- * 承認待ちの一覧。
- * - 自分宛て：実施(do) で承認者＝自分のもの
- * - 生産管理部（canEditMaster）：翌日回し(defer) と、上長未設定の実施(do)
+ * 許可待ちの一覧（翌日回しのみ）。生産管理部（canEditMaster）だけが対象。
+ * 残業の実施は承認不要（報告のみ）なのでここには出ない。
  */
 export async function listPendingApprovals(viewer: {
-  userId: string;
   canEditMaster: boolean;
 }): Promise<Report[]> {
+  if (!viewer.canEditMaster) return [];
   await ensureSchema();
   const sql = getSql();
   const rows = await sql.query(
     `${REPORT_SELECT}
-     WHERE r.approval_status = 'pending'
-       AND (
-         (r.overtime_decision = 'do' AND r.approver_id = $1)
-         OR ($2 AND (r.overtime_decision = 'defer'
-                     OR (r.overtime_decision = 'do' AND r.approver_id IS NULL)))
-       )
+     WHERE r.approval_status = 'pending' AND r.overtime_decision = 'defer'
      ORDER BY r.report_date, f.sort_order, l.sort_order, r.report_time`,
-    [viewer.userId, viewer.canEditMaster]
+    []
   );
   return (rows as any[]).map(mapReport);
 }
 
-/** 自分が出した申請（実施・翌日回し）の直近一覧。承認状態の確認用。 */
+/**
+ * 指定した（ライン・日）の報告をまとめて引く。承認画面で当日の推移を出すため、
+ * 1件ずつ引かずに1クエリで取る。戻り値のキーは `lineId|reportDate`。
+ */
+export async function listReportsOfDays(
+  keys: { lineId: string; reportDate: string }[]
+): Promise<Map<string, Report[]>> {
+  const out = new Map<string, Report[]>();
+  if (keys.length === 0) return out;
+  await ensureSchema();
+  const sql = getSql();
+  const rows = await sql.query(
+    `${REPORT_SELECT}
+     WHERE (r.line_id, r.report_date) IN (
+       SELECT x.l::uuid, x.d::date FROM unnest($1::text[], $2::text[]) AS x(l, d)
+     )
+     ORDER BY r.line_id, r.report_date, r.report_time`,
+    [keys.map((k) => k.lineId), keys.map((k) => k.reportDate)]
+  );
+  for (const r of rows as any[]) {
+    const rep = mapReport(r);
+    const key = `${rep.lineId}|${rep.reportDate}`;
+    const list = out.get(key);
+    if (list) list.push(rep);
+    else out.set(key, [rep]);
+  }
+  return out;
+}
+
+/** 自分が出した残業の報告・申請（実施・翌日回し）の直近一覧。 */
 export async function listMyOvertimeRequests(userId: string, limit = 20): Promise<Report[]> {
   await ensureSchema();
   const sql = getSql();
@@ -651,7 +670,7 @@ export async function listMyOvertimeRequests(userId: string, limit = 20): Promis
 }
 
 /**
- * 承認／差し戻しを記録する。権限判定は呼び出し側（Server Action）で行う。
+ * 許可／差し戻しを記録する。権限判定は呼び出し側（Server Action）で行う。
  * pending のときだけ更新する（二重承認・追い越しを防ぐ）。戻り値は更新できたか。
  */
 export async function applyApproval(
