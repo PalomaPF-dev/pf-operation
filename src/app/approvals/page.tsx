@@ -1,19 +1,20 @@
 import Link from "next/link";
 import { Inbox } from "lucide-react";
 import { requireAdminSession } from "@/lib/session";
-import { listMyOvertimeRequests, listPendingApprovals, listReports } from "@/lib/db";
+import {
+  listMyOvertimeRequests,
+  listPendingApprovals,
+  listReports,
+  listReportsOfDays,
+} from "@/lib/db";
 import { approveReportAction } from "@/lib/actions";
 import { addDays, formatDate, formatDateTime, formatHours, todayString } from "@/lib/format";
-import {
-  OVERTIME_DECISION_LABEL,
-  QTY_LABEL,
-  REASON_LABEL,
-  type Report,
-} from "@/lib/types";
+import { OVERTIME_DECISION_LABEL, QTY_LABEL, REASON_LABEL, type Report } from "@/lib/types";
 import PageHeader from "@/components/PageHeader";
 import DbErrorState from "@/components/DbErrorState";
 import SubmitButton from "@/components/SubmitButton";
 import ReportChat from "@/components/ReportChat";
+import DelayVisual from "@/components/DelayVisual";
 import { ApprovalBadge, OvertimeDecisionBadge } from "@/components/Badges";
 
 export const dynamic = "force-dynamic";
@@ -23,27 +24,31 @@ const inputCls =
 
 /**
  * 承認・申請。
- * - 実施(do)      … 報告者の上長が承認し、承認済みが生産管理部に届く（上長未設定は生産管理部が承認）
- * - 翌日回し(defer)… 生産管理部が許可する
+ * - 実施(do)      … 承認は不要。生産管理部へ「報告」として届く（理由の把握が目的）
+ * - 翌日回し(defer)… 生産管理部が許可する（遅れの状況を図で見て判断する）
  */
 export default async function ApprovalsPage() {
   const session = await requireAdminSession();
 
   let pending: Report[], mine: Report[], delivered: Report[];
+  let historyByKey = new Map<string, Report[]>();
   try {
     [pending, mine, delivered] = await Promise.all([
-      listPendingApprovals({ userId: session.userId, canEditMaster: session.canEditMaster }),
+      listPendingApprovals({ canEditMaster: session.canEditMaster }),
       listMyOvertimeRequests(session.userId),
-      // 生産管理部に届く「承認済みの残業実施」（直近2週間）
+      // 生産管理部へ届く「残業を実施した報告」（承認不要。直近2週間）
       session.canEditMaster
         ? listReports({
             dateFrom: addDays(todayString(), -14),
             overtimeDecision: "do",
-            approvalStatus: "approved",
             limit: 100,
           })
         : Promise.resolve([]),
     ]);
+    // 許可待ちの判断材料として、その日の推移をまとめて引く（1クエリ）
+    historyByKey = await listReportsOfDays(
+      pending.map((r) => ({ lineId: r.lineId, reportDate: r.reportDate }))
+    );
   } catch (e) {
     console.error("[approvals]", e);
     return (
@@ -58,42 +63,47 @@ export default async function ApprovalsPage() {
     <div className="p-4 sm:p-6">
       <PageHeader
         title="承認・申請"
-        description="残業の実施は上長が承認し、承認済みが生産管理部へ届きます。翌日回しは生産管理部が許可します。"
+        description="残業の実施は報告のみです（承認は不要）。翌日回しだけ生産管理部の許可が必要です。"
       />
 
-      {/* ===== あなたの承認待ち ===== */}
-      <section className="max-w-4xl">
-        <h2 className="mb-2 text-sm font-semibold text-slate-900">
-          あなたの承認待ち
-          <span className="ml-2 text-xs font-normal text-slate-500">
-            {pending.length}件
-            {session.canEditMaster ? "（生産管理部宛ての翌日回し・上長未設定の申請を含む）" : ""}
-          </span>
-        </h2>
-        {pending.length === 0 ? (
-          <p className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-500">
-            <Inbox className="h-4 w-4" />
-            承認待ちの申請はありません。
-          </p>
-        ) : (
-          <ul className="space-y-3">
-            {pending.map((r) => (
-              <ApprovalCard key={r.id} report={r} />
-            ))}
-          </ul>
-        )}
-      </section>
+      {/* ===== 許可待ち（翌日回し・生産管理部のみ） ===== */}
+      {session.canEditMaster ? (
+        <section className="max-w-4xl">
+          <h2 className="mb-2 text-sm font-semibold text-slate-900">
+            翌日回しの許可待ち
+            <span className="ml-2 text-xs font-normal text-slate-500">{pending.length}件</span>
+          </h2>
+          {pending.length === 0 ? (
+            <p className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-500">
+              <Inbox className="h-4 w-4" />
+              許可待ちの申請はありません。
+            </p>
+          ) : (
+            <ul className="space-y-3">
+              {pending.map((r) => (
+                <ApprovalCard
+                  key={r.id}
+                  report={r}
+                  history={historyByKey.get(`${r.lineId}|${r.reportDate}`)}
+                />
+              ))}
+            </ul>
+          )}
+        </section>
+      ) : null}
 
       {/* ===== 生産管理部に届いた承認済み残業 ===== */}
       {session.canEditMaster ? (
         <section className="mt-8 max-w-4xl">
           <h2 className="mb-2 text-sm font-semibold text-slate-900">
-            生産管理部に届いた残業（承認済み・直近2週間）
-            <span className="ml-2 text-xs font-normal text-slate-500">{delivered.length}件</span>
+            残業の実施報告（直近2週間）
+            <span className="ml-2 text-xs font-normal text-slate-500">
+              {delivered.length}件・承認不要。理由の把握用
+            </span>
           </h2>
           {delivered.length === 0 ? (
             <p className="rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-500">
-              直近2週間に承認された残業はありません。
+              直近2週間に残業の実施報告はありません。
             </p>
           ) : (
             <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
@@ -105,7 +115,7 @@ export default async function ApprovalsPage() {
                     <th className="px-3 py-2 text-left">申請者</th>
                     <th className="px-3 py-2 text-right">人数 × 時間</th>
                     <th className="px-3 py-2 text-right">延べ</th>
-                    <th className="px-3 py-2 text-left">承認</th>
+                    <th className="px-3 py-2 text-left">理由</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -122,8 +132,11 @@ export default async function ApprovalsPage() {
                       <td className="px-3 py-2 text-right tabular-nums">
                         {formatHours(r.overtimeManMinutes)}
                       </td>
-                      <td className="px-3 py-2 text-xs text-slate-500">
-                        {r.approvalByName ?? "—"}（{formatDateTime(r.approvalAt)}）
+                      <td className="px-3 py-2 text-xs text-slate-600">
+                        {r.reasonCode ? (
+                          <span className="font-medium">{REASON_LABEL[r.reasonCode]}</span>
+                        ) : null}
+                        {r.reason ? <span className="ml-1">{r.reason}</span> : null}
                       </td>
                     </tr>
                   ))}
@@ -141,15 +154,15 @@ export default async function ApprovalsPage() {
         </section>
       ) : null}
 
-      {/* ===== 自分の申請 ===== */}
+      {/* ===== 自分の報告・申請 ===== */}
       <section className="mt-8 max-w-4xl">
         <h2 className="mb-2 text-sm font-semibold text-slate-900">
-          自分の申請
+          自分の残業報告・申請
           <span className="ml-2 text-xs font-normal text-slate-500">直近{mine.length}件</span>
         </h2>
         {mine.length === 0 ? (
           <p className="rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-500">
-            残業・翌日回しの申請はまだありません。
+            残業・翌日回しの報告はまだありません。
             <Link href="/report" className="ml-1 text-brand-700 underline">
               進捗・残業の入力
             </Link>
@@ -167,11 +180,11 @@ export default async function ApprovalsPage() {
                   <OvertimeDecisionBadge decision={r.overtimeDecision} />
                   <ApprovalBadge status={r.approvalStatus} />
                   <span className="ml-auto text-xs text-slate-500">
-                    {r.approvalStatus === "pending"
-                      ? r.overtimeDecision === "defer"
+                    {r.approvalStatus === null
+                      ? "報告済み（承認は不要）"
+                      : r.approvalStatus === "pending"
                         ? "生産管理部の許可待ち"
-                        : `承認者：${r.approverName ?? "生産管理部"}`
-                      : `${r.approvalByName ?? "—"}（${formatDateTime(r.approvalAt)}）`}
+                        : `${r.approvalByName ?? "—"}（${formatDateTime(r.approvalAt)}）`}
                   </span>
                 </div>
                 {r.approvalStatus === "rejected" && r.approvalComment ? (
@@ -201,51 +214,33 @@ export default async function ApprovalsPage() {
   );
 }
 
-/** 承認待ち1件のカード（承認／差し戻し）。 */
-function ApprovalCard({ report: r }: { report: Report }) {
+/**
+ * 翌日回しの許可待ち1件。
+ * 「なぜ遅れたのか」を判断できるよう、数字だけでなく DelayVisual で
+ * 計画・理論・実績の関係と当日の推移を図で見せる。
+ */
+function ApprovalCard({ report: r, history }: { report: Report; history?: Report[] }) {
   const qty = QTY_LABEL[r.lineType];
-  const isDefer = r.overtimeDecision === "defer";
   return (
-    <li className="rounded-xl border border-amber-200 bg-white p-4">
+    <li className="rounded-xl border border-sky-200 bg-white p-4">
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <span className="tabular-nums font-medium text-slate-900">{formatDate(r.reportDate)}</span>
         <span className="font-medium text-slate-900">
           {r.factoryName} / {r.lineName}
         </span>
         <OvertimeDecisionBadge decision={r.overtimeDecision} />
-        {isDefer ? (
-          <span className="text-xs text-sky-700">生産管理部の許可が必要です</span>
-        ) : null}
+        <span className="text-xs text-sky-700">生産管理部の許可が必要です</span>
         <span className="ml-auto text-xs text-slate-500">
           申請：{r.reportedByName ?? "—"}（{formatDateTime(r.reportedAt)}）
         </span>
       </div>
 
-      <p className="mt-2 text-xs text-slate-600">
-        実績 {r.actualQty}
-        {qty.unit} / 理論 {r.theoreticalQty}
-        {qty.unit} / 計画 {r.plannedQty}
-        {qty.unit}
-        {r.reasonCode ? (
-          <span className="ml-3 font-medium">{REASON_LABEL[r.reasonCode]}</span>
-        ) : null}
-        {r.reason ? <span className="ml-1">{r.reason}</span> : null}
-      </p>
+      {/* 遅れの状況（帯グラフ・理由・当日の推移） */}
+      <DelayVisual report={r} history={history} />
 
-      {r.overtimeManMinutes > 0 ? (
-        <p className="mt-2 text-sm text-slate-700">
-          残業：
-          <strong className="tabular-nums">
-            {r.overtimeHeadcount}名 × {r.overtimeMinutesPerPerson}分
-          </strong>
-          <span className="ml-1 text-slate-500">（延べ {formatHours(r.overtimeManMinutes)}）</span>
-        </p>
-      ) : null}
-      {isDefer ? (
-        <p className="mt-2 text-xs text-slate-600">
-          {OVERTIME_DECISION_LABEL.defer}：残った{qty.name}を翌日の計画に回します。
-        </p>
-      ) : null}
+      <p className="mt-2 text-xs text-slate-600">
+        {OVERTIME_DECISION_LABEL.defer}：残業せず、残った{qty.name}を翌日の計画に回します。
+      </p>
 
       <form action={approveReportAction} className="mt-3 flex flex-wrap items-center gap-2">
         <input type="hidden" name="id" value={r.id} />
@@ -262,7 +257,7 @@ function ApprovalCard({ report: r }: { report: Report }) {
           pendingLabel="処理中…"
           className="rounded-lg bg-brand-700 px-4 py-2 text-sm font-medium text-white hover:bg-brand-800 disabled:opacity-60"
         >
-          {isDefer ? "許可する" : "承認する"}
+          許可する
         </SubmitButton>
         <SubmitButton
           name="verdict"

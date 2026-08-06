@@ -205,14 +205,10 @@ export default async function ReportsPage({
                   <span>
                     入力 {r.reportedByName ?? "—"}（{formatDateTime(r.reportedAt)}）
                   </span>
-                  {r.approvalStatus === "pending" ? (
-                    <span>
-                      承認待ち：{r.overtimeDecision === "defer" ? "生産管理部" : (r.approverName ?? "生産管理部")}
-                    </span>
-                  ) : null}
+                  {r.approvalStatus === "pending" ? <span>生産管理部の許可待ち</span> : null}
                   {r.approvalStatus === "approved" || r.approvalStatus === "rejected" ? (
                     <span>
-                      {r.approvalStatus === "approved" ? "承認" : "差し戻し"}：{r.approvalByName ?? "—"}
+                      {r.approvalStatus === "approved" ? "許可" : "差し戻し"}：{r.approvalByName ?? "—"}
                       （{formatDateTime(r.approvalAt)}）
                     </span>
                   ) : null}
