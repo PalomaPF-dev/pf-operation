@@ -626,35 +626,6 @@ export async function listPendingApprovals(viewer: {
   return (rows as any[]).map(mapReport);
 }
 
-/**
- * 指定した（ライン・日）の報告をまとめて引く。承認画面で当日の推移を出すため、
- * 1件ずつ引かずに1クエリで取る。戻り値のキーは `lineId|reportDate`。
- */
-export async function listReportsOfDays(
-  keys: { lineId: string; reportDate: string }[]
-): Promise<Map<string, Report[]>> {
-  const out = new Map<string, Report[]>();
-  if (keys.length === 0) return out;
-  await ensureSchema();
-  const sql = getSql();
-  const rows = await sql.query(
-    `${REPORT_SELECT}
-     WHERE (r.line_id, r.report_date) IN (
-       SELECT x.l::uuid, x.d::date FROM unnest($1::text[], $2::text[]) AS x(l, d)
-     )
-     ORDER BY r.line_id, r.report_date, r.report_time`,
-    [keys.map((k) => k.lineId), keys.map((k) => k.reportDate)]
-  );
-  for (const r of rows as any[]) {
-    const rep = mapReport(r);
-    const key = `${rep.lineId}|${rep.reportDate}`;
-    const list = out.get(key);
-    if (list) list.push(rep);
-    else out.set(key, [rep]);
-  }
-  return out;
-}
-
 /** 自分が出した残業の報告・申請（実施・翌日回し）の直近一覧。 */
 export async function listMyOvertimeRequests(userId: string, limit = 20): Promise<Report[]> {
   await ensureSchema();
