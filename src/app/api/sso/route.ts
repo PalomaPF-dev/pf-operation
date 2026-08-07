@@ -3,6 +3,7 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { encode } from "next-auth/jwt";
 import { syncApproverFromPortal, upsertPortalUser } from "@/lib/authDb";
 import { SESSION_COOKIE_NAME, SESSION_MAX_AGE, useSecureCookies } from "@/lib/authOptions";
+import { canEnterOperation } from "@/lib/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -125,8 +126,10 @@ export async function GET(req: Request) {
       }
     }
 
-    // 管理者専用。一般ユーザーはセッションを発行しない
-    if (user.role !== "admin") return fail("forbidden");
+    // 管理者専用。一般ユーザーはセッションを発行しない。
+    // ポータル管理権限（portal_admin）を持つ人はポータル側でも起動を許可しているので、
+    // ここでも通す（ポータルとアプリで入室条件を揃える）。
+    if (!canEnterOperation(user)) return fail("forbidden");
 
     const secret = process.env.NEXTAUTH_SECRET;
     if (!secret) return fail("config");

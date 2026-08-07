@@ -33,6 +33,18 @@ export function masterEditDepartments(): string[] {
 }
 
 /**
+ * このアプリに入れるか（進捗管理は管理者専用）。
+ * - ポータルの役割が管理者（role='admin'）
+ * - または ポータル管理権限を持つ人（portal_admin＝ポータルの can_manage）
+ *
+ * ポータル側の起動判定（role==='admin' || canManage）と揃えてある。揃えないと、
+ * ポータルではタイルを押せるのにアプリ側で forbidden になる（人事管理も同じ規則）。
+ */
+export function canEnterOperation(user: { role: string; portalAdmin: boolean }): boolean {
+  return user.role === "admin" || user.portalAdmin === true;
+}
+
+/**
  * マスタを編集できるか。
  * - ポータルの管理権限を持つ人（ポータル管理者）は、部署によらず編集できる。
  * - それ以外は所属部署が MASTER_EDIT_DEPARTMENTS に含まれる場合のみ（部署未連携は編集不可）。
@@ -69,7 +81,7 @@ export async function requireAdminSession(): Promise<AppSession> {
   if (!session?.user?.id) redirect("/login");
   const user = await findUserById(session.user.id);
   if (!user) redirect("/login?error=account");
-  if (user.role !== "admin") redirect("/login?error=forbidden");
+  if (!canEnterOperation(user)) redirect("/login?error=forbidden");
   return {
     userId: user.id,
     loginId: user.loginId,
@@ -103,7 +115,7 @@ export async function getAdminSession(): Promise<AppSession | null> {
   const { session } = await readSession();
   if (!session?.user?.id) return null;
   const user = await findUserById(session.user.id);
-  if (!user || user.role !== "admin") return null;
+  if (!user || !canEnterOperation(user)) return null;
   return {
     userId: user.id,
     loginId: user.loginId,
