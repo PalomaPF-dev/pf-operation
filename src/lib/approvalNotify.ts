@@ -1,10 +1,12 @@
 /**
- * 残業・翌日回しの申請が出たときに、承認者へ LINE WORKS で通知する（ポータル経由）。
+ * 翌日回しの許可待ちが出たときに、許可を出す人へ LINE WORKS で通知する（ポータル経由）。
  *
- * 誰に送るかはポータルが決める（承認者 → 職場の管理者 → 部署の管理者の順に、
- * LINE WORKS が設定されている人を探す）。このアプリは「誰の申請か」を渡すだけでよい。
+ * このアプリで承認が要るのは翌日回し(defer)だけで、判断するのは申請者の上長ではなく
+ * 生産管理部（マスタ編集権限者）。そのため通知先はこのアプリ側で決めて、
+ * ポータルの複数宛て送信（loginIds）に渡す。
+ * 残業の実施(do)は承認不要なので通知しない。
+ *
  * 仕様は pf-portal の docs/lineworks.md を参照。
- *
  * 通知の失敗で申請を失敗させないこと。呼び出し側は await せず投げっぱなしにする。
  */
 
@@ -20,13 +22,14 @@ function approvalsUrl(): string | undefined {
 }
 
 /**
- * 承認者へ通知する。失敗しても例外を投げない（申請自体は成立させる）。
- * @param applicantLoginId 申請者の社員番号（ポータルの login_id）
- * @param summary 本文に載せる申請の要約（「第一工場 / ライン2 の残業 3名×60分」など）
+ * 許可を出す人へ通知する。失敗しても例外を投げない（申請自体は成立させる）。
+ * @param approverLoginIds 通知先の社員番号（生産管理部の管理者）。空なら何もしない。
+ * @param summary 本文（「〈申請者〉さんから翌日回しの申請が届いています。日付・ライン」など）
  */
-export function notifyApprovalRequested(applicantLoginId: string | null, summary: string): void {
+export function notifyApprovalRequested(approverLoginIds: string[], summary: string): void {
   const key = (process.env.PF_PROVISION_KEY ?? "").trim();
-  if (!key || !applicantLoginId) return;
+  const to = approverLoginIds.filter(Boolean);
+  if (!key || to.length === 0) return;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -35,8 +38,9 @@ export function notifyApprovalRequested(applicantLoginId: string | null, summary
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       key,
-      approvalFor: applicantLoginId,
+      loginIds: to,
       app: APP_KEY,
+      title: "翌日回しの許可依頼",
       message: summary,
       url: approvalsUrl(),
     }),
@@ -48,10 +52,10 @@ export function notifyApprovalRequested(applicantLoginId: string | null, summary
         console.error("[approvalNotify] ポータルが拒否:", r.status, (await r.text().catch(() => "")).slice(0, 200));
         return;
       }
-      // 宛先が1人もいない場合もポータルは 200 を返す。設定漏れに気付けるよう記録する。
-      const d = (await r.json().catch(() => null)) as { sent?: boolean; reason?: string } | null;
-      if (d && d.sent === false) {
-        console.warn("[approvalNotify] 通知先なし:", applicantLoginId, d.reason);
+      // 宛先にLINE WORKSが未設定でもポータルは 200 を返す。設定漏れに気付けるよう記録する。
+      const d = (await r.json().catch(() => null)) as { sentCount?: number } | null;
+      if (d && d.sentCount === 0) {
+        console.warn("[approvalNotify] 誰にも届いていません（LINE WORKS未登録の可能性）:", to.join(","));
       }
     })
     .catch((e) => console.error("[approvalNotify] 送信失敗:", e instanceof Error ? e.message : e))
