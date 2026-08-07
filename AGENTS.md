@@ -30,9 +30,15 @@ Notably in this repo: the `middleware` file convention is deprecated and renamed
   申請時と結果（許可・差し戻し）は LINE WORKS へ通知する（`src/lib/approvalNotify.ts`）。
   宛先は生産管理部・申請者に加えて**対象工場のメンバー**（`listFactoryMemberLoginIds`）。
   通知の失敗で申請・許可を失敗させないこと。
-- 入力を促す定期通知は `op_reminders`（工場・ライン別の時刻/曜日/宛先）＋
-  `/api/cron/reminders`（Vercel Cron 15分ごと）。予定時刻を過ぎた分を45分以内で拾い、
-  `last_sent_date` で同日の二重送信を防ぐ。宛先が空なら対象工場のメンバー全員。
+- 入力を促す定期通知は `op_reminders` ＋ `/api/cron/reminders`（Vercel Cron 15分ごと）。
+  **対象（工場全体／工場×ライン）ごとに1行**で、時刻は `remind_times`（`time[]`）に複数持つ。
+  マスタ設定の画面も工場・ラインマスターと同じ「工場ごとの表」で、時刻は1つの欄にまとめて入力し、
+  空にすればその行の通知をやめる（`saveRemindersAction`）。予定時刻を過ぎた分を45分以内で拾い、
+  1回の実行で送るのは直近の1時刻だけ。`last_sent_date` / `last_sent_time` で二重送信を防ぐ。
+  宛先が空なら対象工場のメンバー全員。
+- 稼働日は `op_calendar`（`factory_id` が NULL なら全工場共通。工場の行があればそちらが優先）。
+  休業日（`working = false`）は定期通知を送らず、臨時稼働（true）は曜日の設定に関係なく送る。
+  曜日だけでは拾えない祝日・お盆・年末年始と休日出勤をここで持つ。
 - 残業の申請内容は「人数 × 一人当たりの分」（`op_reports.overtime_headcount / overtime_minutes`）。
   対象者個人は記録しない（`op_overtime_members` は旧形式で、新規には書かない）。
 - 理論値の計算は `src/lib/capacity.ts` に集約。休憩は実時刻で差し引き、稼働時間(H)で頭打ちにする。

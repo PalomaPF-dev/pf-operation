@@ -11,10 +11,10 @@ import {
 import {
   createFactory,
   createLine,
-  createReminder,
+  deleteCalendarDay,
   deleteFactory,
   deleteLine,
-  deleteReminder,
+  deleteReminderTarget,
   deleteReport,
   applyApproval,
   getLine,
@@ -26,8 +26,9 @@ import {
   updateFactory,
   updateLine,
   updateLineRow,
-  updateReminder,
+  upsertCalendarDay,
   upsertPlan,
+  upsertReminder,
 } from "./db";
 import { parseBreaks, theoreticalAt } from "./capacity";
 import { notifyApprovalDecided, notifyApprovalRequested } from "./approvalNotify";
@@ -37,6 +38,7 @@ import {
   isProgressStatus,
   isReasonCode,
   isReportKind,
+  parseTimeList,
   type OvertimeDecision,
   type ProgressStatus,
   type ReasonCode,
@@ -357,18 +359,18 @@ export async function deleteLineAction(fd: FormData): Promise<void> {
 
 /* ===== マスタ：入力を促す定期通知 ===== */
 
-/** チェックボックス weekday_0..6 から曜日の配列を作る。 */
-function readWeekdays(fd: FormData): number[] {
+/** チェックボックス weekday_<key>_0..6 から曜日の配列を作る。 */
+function readWeekdays(fd: FormData, key: string): number[] {
   const days: number[] = [];
-  for (let d = 0; d <= 6; d++) if (bool(fd, `weekday_${d}`)) days.push(d);
+  for (let d = 0; d <= 6; d++) if (bool(fd, `weekday_${key}_${d}`)) days.push(d);
   return days;
 }
 
 /** 宛先の社員番号。カンマ・空白・改行のどれで区切ってもよい。 */
-function readRecipients(fd: FormData): string[] {
+function readRecipients(fd: FormData, key: string): string[] {
   return [
     ...new Set(
-      str(fd, "recipients")
+      str(fd, `recipients_${key}`)
         .split(/[,、\s]+/)
         .map((v) => v.trim())
         .filter(Boolean)
@@ -376,34 +378,66 @@ function readRecipients(fd: FormData): string[] {
   ];
 }
 
-export async function saveReminderAction(fd: FormData): Promise<void> {
+/**
+ * 定期通知を工場の表からまとめて保存する（工場・ラインマスターと同じ操作感）。
+ *
+ * 1行＝1つの対象（工場全体、またはその中の1ライン）。通知時刻は「9:00, 13:00」のように
+ * 1つの欄へまとめて入力し、空にすればその対象への通知はやめる。
+ */
+export async function saveRemindersAction(fd: FormData): Promise<void> {
   await requireMasterEditor();
-  const id = optStr(fd, "id");
-  const factoryId = str(fd, "factoryId");
-  if (!factoryId) throw new Error("工場を選んでください");
-  const weekdays = readWeekdays(fd);
-  if (weekdays.length === 0) throw new Error("通知する曜日を1つ以上選んでください");
+  // target は "<工場ID>|<ラインID or 空>"
+  const targets = fd.getAll("target").filter((v): v is string => typeof v === "string");
+  for (const target of targets) {
+    const [factoryId, lineIdRaw] = target.split("|");
+    if (!factoryId) continue;
+    const lineId = lineIdRaw ? lineIdRaw : null;
+    const key = lineId ?? factoryId;
 
-  const input = {
-    factoryId,
-    // ラインを選ばなければ工場全体への通知
-    lineId: optStr(fd, "lineId"),
-    remindTime: time(fd, "remindTime", "10:00"),
-    weekdays,
-    recipients: readRecipients(fd),
-    message: optStr(fd, "message"),
-    skipIfReported: bool(fd, "skipIfReported"),
-    active: bool(fd, "active"),
-  };
-  if (id) await updateReminder(id, input);
-  else await createReminder(input);
+    const remindTimes = parseTimeList(str(fd, `times_${key}`));
+    if (remindTimes.length === 0) {
+      // 時刻を空にしたら、その対象への通知はやめる
+      await deleteReminderTarget(factoryId, lineId);
+      continue;
+    }
+    const weekdays = readWeekdays(fd, key);
+    if (weekdays.length === 0) {
+      throw new Error("通知する曜日を1つ以上選んでください（時刻を空にすると通知をやめられます）");
+    }
+    await upsertReminder({
+      factoryId,
+      lineId,
+      remindTimes,
+      weekdays,
+      recipients: readRecipients(fd, key),
+      message: optStr(fd, `message_${key}`),
+      skipIfReported: bool(fd, `skipIfReported_${key}`),
+      active: true,
+    });
+  }
   revalidatePath("/masters");
 }
 
-export async function deleteReminderAction(fd: FormData): Promise<void> {
+/* ===== マスタ：稼働日（休業日・臨時稼働日） ===== */
+
+export async function saveCalendarDayAction(fd: FormData): Promise<void> {
+  await requireMasterEditor();
+  const date = str(fd, "date");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("日付を選んでください");
+  await upsertCalendarDay({
+    // 工場を選ばなければ全工場共通の休み（会社休日）
+    factoryId: optStr(fd, "factoryId"),
+    date,
+    working: str(fd, "kind") === "working",
+    note: optStr(fd, "note"),
+  });
+  revalidatePath("/masters");
+}
+
+export async function deleteCalendarDayAction(fd: FormData): Promise<void> {
   await requireMasterEditor();
   const id = str(fd, "id");
   if (!id) return;
-  await deleteReminder(id);
+  await deleteCalendarDay(id);
   revalidatePath("/masters");
 }

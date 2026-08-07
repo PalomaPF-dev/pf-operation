@@ -218,7 +218,7 @@ export function gapOf(report: { theoreticalQty: number; actualQty: number }): nu
 
 /**
  * 入力を促す定期通知の設定。
- * 工場（ラインは任意）ごとに、何曜日の何時に誰へ送るかを持つ。
+ * 対象（工場全体、またはその中の1ライン）ごとに1件で、1日に何度でも促せる。
  */
 export interface Reminder {
   id: string;
@@ -227,8 +227,8 @@ export interface Reminder {
   /** 特定ラインを促すとき。null なら工場全体 */
   lineId: string | null;
   lineName: string | null;
-  /** 通知時刻 "HH:MM"（JST） */
-  remindTime: string;
+  /** 通知時刻 "HH:MM"（JST）。1日に複数設定できる */
+  remindTimes: string[];
   /** 送る曜日（0=日 … 6=土） */
   weekdays: number[];
   /** 宛先の社員番号。空なら対象工場のメンバー全員 */
@@ -237,8 +237,44 @@ export interface Reminder {
   /** その時点で報告済みなら送らない */
   skipIfReported: boolean;
   active: boolean;
-  /** 最後に送った日（JST）。同じ日の二重送信を防ぐ */
+  /** 最後に送った日（JST）。同じ時刻の二重送信を防ぐ */
   lastSentDate: string | null;
+  /** 最後に送った予定時刻。これ以前の時刻は同じ日には送らない */
+  lastSentTime: string | null;
+}
+
+/** 「9:00, 13:00」のような入力を "HH:MM" の配列にする（不正な値は捨てる）。 */
+export function parseTimeList(input: string): string[] {
+  const found = input
+    .split(/[,、\s／/]+/)
+    .map((v) => v.trim())
+    .filter(Boolean)
+    .map((v) => {
+      const m = /^(\d{1,2}):(\d{2})$/.exec(v);
+      if (!m) return null;
+      const h = Number(m[1]);
+      const min = Number(m[2]);
+      if (h > 23 || min > 59) return null;
+      return `${String(h).padStart(2, "0")}:${m[2]}`;
+    })
+    .filter((v): v is string => v !== null);
+  return [...new Set(found)].sort();
+}
+
+/**
+ * 稼働日マスタの1日。
+ * 曜日設定だけでは拾えない休み（祝日・お盆・年末年始）と、
+ * 休日出勤（臨時稼働）を日付で持つ。工場を指定しなければ全工場共通。
+ */
+export interface CalendarDay {
+  id: string;
+  /** null なら全工場共通 */
+  factoryId: string | null;
+  factoryName: string | null;
+  date: string;
+  /** true=稼働（休日出勤など）／false=休業 */
+  working: boolean;
+  note: string | null;
 }
 
 export const WEEKDAY_LABEL = ["日", "月", "火", "水", "木", "金", "土"] as const;

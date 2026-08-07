@@ -1,4 +1,9 @@
-import { listDueReminders, listUnreportedLines, markReminderSent } from "@/lib/db";
+import {
+  getCalendarOverrides,
+  listDueReminders,
+  listUnreportedLines,
+  markReminderSent,
+} from "@/lib/db";
 import { listFactoryMemberLoginIds } from "@/lib/authDb";
 import { notifyInputReminder } from "@/lib/approvalNotify";
 import { minutesToTime, nowJstMinutes, todayString } from "@/lib/format";
@@ -16,6 +21,9 @@ export const dynamic = "force-dynamic";
  * 予定時刻ちょうどには呼ばれないため、
  * 「予定時刻を過ぎていて、まだ今日送っていないもの」を WINDOW_MINUTES 以内で拾う。
  * 昼に止まっていた分を夜に送ってしまわないよう、古すぎる予定は諦める。
+ *
+ * 休みの日に促さないよう、マスタ設定「稼働日」で休業日にした日は送らない。
+ * 逆に臨時稼働にした日は、曜日の設定に入っていなくても送る。
  *
  * CRON_SECRET が設定されていれば Authorization: Bearer で認証する
  * （Vercel Cron が自動で付ける。外部のスケジューラから叩くときも同じヘッダを付ける）。
@@ -40,15 +48,36 @@ export async function GET(req: Request) {
   let checked = 0;
   let sent = 0;
   let skipped = 0;
+  let holiday = 0;
   try {
-    const due = await listDueReminders({ today, weekday, nowTime, windowMinutes: WINDOW_MINUTES });
+    // 稼働日マスタの指定（工場の行があれば全工場共通より優先する）
+    const calendar = await getCalendarOverrides(today);
+    const forcedWorking = Object.entries(calendar.byFactory)
+      .filter(([, working]) => working)
+      .map(([factoryId]) => factoryId);
+
+    const due = await listDueReminders({
+      today,
+      weekday,
+      nowTime,
+      windowMinutes: WINDOW_MINUTES,
+      forceAll: calendar.common === true,
+      forceFactoryIds: forcedWorking,
+    });
     for (const r of due) {
       checked++;
+      // 休業日は促さない（記録も残さず、翌日また判定する）
+      const working = calendar.byFactory[r.factoryId] ?? calendar.common;
+      if (working === false) {
+        holiday++;
+        continue;
+      }
+
       // 報告済みなら促さない（設定で無効にもできる）
       const unreported = await listUnreportedLines(r.factoryId, r.lineId, today);
       if (r.skipIfReported && unreported.length === 0) {
-        // 送らなかった日も記録して、同じ日に何度も判定し直さないようにする
-        await markReminderSent(r.id, today);
+        // 送らなかった分も記録して、同じ時刻を何度も判定し直さないようにする
+        await markReminderSent(r.id, today, r.dueTime);
         skipped++;
         continue;
       }
@@ -56,8 +85,8 @@ export async function GET(req: Request) {
       const to =
         r.recipients.length > 0 ? r.recipients : await listFactoryMemberLoginIds(r.factoryName);
       if (to.length === 0) {
-        await markReminderSent(r.id, today);
-        console.warn("[cron/reminders] 宛先がいません:", r.factoryName, r.remindTime);
+        await markReminderSent(r.id, today, r.dueTime);
+        console.warn("[cron/reminders] 宛先がいません:", r.factoryName, r.dueTime);
         continue;
       }
 
@@ -69,17 +98,19 @@ export async function GET(req: Request) {
             (unreported.length > 12 ? ` ほか${unreported.length - 12}ライン` : "");
       notifyInputReminder(
         to,
-        `${r.remindTime} の進捗・残業の入力をお願いします。\n${target}${lines}` +
+        `${r.dueTime} の進捗・残業の入力をお願いします。\n${target}${lines}` +
           (r.message ? `\n${r.message}` : "")
       );
-      await markReminderSent(r.id, today);
+      await markReminderSent(r.id, today, r.dueTime);
       sent++;
     }
   } catch (e) {
     console.error("[cron/reminders]", e);
-    return Response.json({ ok: false, checked, sent, skipped }, { status: 500 });
+    return Response.json({ ok: false, checked, sent, skipped, holiday }, { status: 500 });
   }
 
-  console.log(`[cron/reminders] ${nowTime}（${formatWeekdays([weekday])}） 対象${checked} 送信${sent} 省略${skipped}`);
-  return Response.json({ ok: true, time: nowTime, checked, sent, skipped });
+  console.log(
+    `[cron/reminders] ${nowTime}（${formatWeekdays([weekday])}） 対象${checked} 送信${sent} 省略${skipped} 休業${holiday}`
+  );
+  return Response.json({ ok: true, time: nowTime, checked, sent, skipped, holiday });
 }

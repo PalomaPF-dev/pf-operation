@@ -19,12 +19,20 @@ async function safeDdl(run: () => Promise<unknown>): Promise<void> {
   }
 }
 
+/** 旧形式からの移行判定に使う（列が残っているかどうか）。 */
+async function hasColumn(sql: any, table: string, column: string): Promise<boolean> {
+  const rows = await sql`
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = ${table} AND column_name = ${column}`;
+  return rows.length > 0;
+}
+
 /**
  * スキーマの版数。DDL を追加・変更したら必ず +1 する。
  * DB 側の op_schema_info がこの版数以上なら、DDL を丸ごとスキップする
  * （サーバーレスの新インスタンスが毎回30本近い DDL を流すと起動が数秒遅くなるため）。
  */
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 let schemaReady: Promise<void> | null = null;
 
@@ -38,6 +46,7 @@ let schemaReady: Promise<void> | null = null;
  * - op_daily_plans       … 日ごとの計画数・始業・投入人数
  * - op_reports           … 定期報告（進捗チェック／終業後）と残業の要否
  * - op_reminders         … 入力を促す定期通知の設定（工場・ラインごとの時刻と宛先）
+ * - op_calendar          … 稼働日マスタ（工場ごとの休業日・臨時稼働日）
  * - op_overtime_members  … 残業の対象者と時間
  *
  * 同一プロセス内の同時呼び出しは1回の実行に集約（共有プロミス）。失敗時は次回再試行できるよう解除。
@@ -264,15 +273,16 @@ async function buildSchema(): Promise<void> {
   );
 
   // ===== 入力を促す定期通知 =====
-  // 工場（ライン指定は任意）ごとに「何曜日の何時に」「誰へ」通知するかを持つ。
-  // last_sent_date は同じ日に二重送信しないための記録（JSTの日付）。
+  // 対象（工場、またはその中の1ライン）ごとに1行。1日に何度も促せるよう時刻は配列で持つ。
+  // last_sent_date / last_sent_time は同じ時刻を二重送信しないための記録（JST）。
   await safeDdl(() => sql`
     CREATE TABLE IF NOT EXISTS op_reminders (
       id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
       factory_id   uuid NOT NULL REFERENCES op_factories(id) ON DELETE CASCADE,
       -- 特定ラインの入力を促すとき。NULL なら工場全体
       line_id      uuid REFERENCES op_lines(id) ON DELETE CASCADE,
-      remind_time  time NOT NULL,
+      -- 通知時刻（1日に複数可）。空なら通知しない
+      remind_times time[] NOT NULL DEFAULT '{}',
       -- 送る曜日（0=日 … 6=土）。既定は平日
       weekdays     smallint[] NOT NULL DEFAULT '{1,2,3,4,5}',
       -- 宛先の社員番号。空なら対象工場のメンバー全員へ送る
@@ -283,13 +293,75 @@ async function buildSchema(): Promise<void> {
       skip_if_reported boolean NOT NULL DEFAULT true,
       active       boolean NOT NULL DEFAULT true,
       last_sent_date date,
+      last_sent_time time,
       created_at   timestamptz NOT NULL DEFAULT now(),
       updated_at   timestamptz NOT NULL DEFAULT now()
     )`);
+  // 旧形式（1行＝1時刻）からの移行：時刻を配列にまとめ、対象ごとに1行へ寄せる
+  await safeDdl(() => sql`ALTER TABLE op_reminders ADD COLUMN IF NOT EXISTS remind_times time[]`);
+  await safeDdl(() => sql`ALTER TABLE op_reminders ADD COLUMN IF NOT EXISTS last_sent_time time`);
+  await safeDdl(() => sql`ALTER TABLE op_reminders ALTER COLUMN remind_times SET DEFAULT '{}'`);
+  if (await hasColumn(sql, "op_reminders", "remind_time")) {
+    // 同じ対象（工場・ライン）の行は先に作られた1行に集約する。
+    // 宛先・ひとことは集約先の行のものが残る（時刻ごとに宛先を変える運用は無かったため）。
+    await safeDdl(() => sql`
+      WITH grouped AS (
+        SELECT factory_id, line_id,
+               (array_agg(id ORDER BY created_at, id))[1] AS keep_id,
+               array_agg(DISTINCT remind_time) AS times
+        FROM op_reminders
+        WHERE remind_time IS NOT NULL
+        GROUP BY factory_id, line_id
+      )
+      UPDATE op_reminders r
+      SET remind_times = g.times
+      FROM grouped g
+      WHERE r.id = g.keep_id AND (r.remind_times IS NULL OR r.remind_times = '{}')`);
+    await safeDdl(() => sql`
+      DELETE FROM op_reminders
+      WHERE remind_times IS NULL OR remind_times = '{}'`);
+    await safeDdl(() => sql`ALTER TABLE op_reminders DROP COLUMN IF EXISTS remind_time`);
+  }
+  await safeDdl(() => sql`UPDATE op_reminders SET remind_times = '{}' WHERE remind_times IS NULL`);
+  await safeDdl(() => sql`ALTER TABLE op_reminders ALTER COLUMN remind_times SET NOT NULL`);
+  // 対象（工場全体／工場×ライン）ごとに1行だけ持つ
+  await safeDdl(
+    () =>
+      sql`CREATE UNIQUE INDEX IF NOT EXISTS op_reminders_line_uq ON op_reminders (factory_id, line_id) WHERE line_id IS NOT NULL`
+  );
+  await safeDdl(
+    () =>
+      sql`CREATE UNIQUE INDEX IF NOT EXISTS op_reminders_factory_uq ON op_reminders (factory_id) WHERE line_id IS NULL`
+  );
   await safeDdl(
     () =>
       sql`CREATE INDEX IF NOT EXISTS op_reminders_active_idx ON op_reminders (active) WHERE active = true`
   );
+
+  // ===== 稼働日マスタ =====
+  // 曜日だけでは拾えない休み（祝日・お盆・年末年始）と、休日出勤（臨時稼働）を日付で持つ。
+  // factory_id が NULL の行は全工場に効く（会社休日）。工場の行があればそちらを優先する。
+  await safeDdl(() => sql`
+    CREATE TABLE IF NOT EXISTS op_calendar (
+      id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      -- NULL = 全工場共通の休み／稼働
+      factory_id uuid REFERENCES op_factories(id) ON DELETE CASCADE,
+      the_date   date NOT NULL,
+      -- true = 稼働日（休日出勤など）｜false = 休業日
+      working    boolean NOT NULL DEFAULT false,
+      note       text,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )`);
+  // 同じ工場・同じ日は1件だけ（全工場共通は factory_id が NULL のため部分索引で分ける）
+  await safeDdl(
+    () =>
+      sql`CREATE UNIQUE INDEX IF NOT EXISTS op_calendar_factory_date_uq ON op_calendar (factory_id, the_date) WHERE factory_id IS NOT NULL`
+  );
+  await safeDdl(
+    () =>
+      sql`CREATE UNIQUE INDEX IF NOT EXISTS op_calendar_common_date_uq ON op_calendar (the_date) WHERE factory_id IS NULL`
+  );
+  await safeDdl(() => sql`CREATE INDEX IF NOT EXISTS op_calendar_date_idx ON op_calendar (the_date)`);
 
   // ===== 版数の記録（次回からは冒頭の1クエリで抜ける）=====
   await safeDdl(() => sql`
