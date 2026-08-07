@@ -2,9 +2,9 @@ import Link from "next/link";
 import { AlertTriangle, ClipboardList, Clock, Factory as FactoryIcon } from "lucide-react";
 import { requireAdminSession } from "@/lib/session";
 import { latestReportsByDate, listFactories, listLines, listPlansByDate } from "@/lib/db";
-import { buildLineStatus, shiftEnd, STATE_CLASS, STATE_LABEL } from "@/lib/dashboard";
+import { buildLineStatus, shiftEnd, STATE_CLASS, STATE_LABEL, type LineStatus } from "@/lib/dashboard";
 import { formatDate, formatHours, formatNumber, todayString } from "@/lib/format";
-import { QTY_LABEL } from "@/lib/types";
+import { QTY_LABEL, type Factory } from "@/lib/types";
 import PageHeader from "@/components/PageHeader";
 import DbErrorState from "@/components/DbErrorState";
 import { LineTypeBadge } from "@/components/Badges";
@@ -13,7 +13,8 @@ export const dynamic = "force-dynamic";
 
 /**
  * ダッシュボード。
- * 指定日（既定は当日）の全ラインについて、最終報告の進み具合・遅延・残業を一覧する。
+ * 指定日（既定は当日）の進捗を**工場ごと**にまとめ、
+ * その工場のラインを器種つきで並べて最終報告の進み具合・遅延・残業を一覧する。
  */
 export default async function DashboardPage({
   searchParams,
@@ -140,94 +141,143 @@ export default async function DashboardPage({
           から登録してください。
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-          <table className="print-table w-full min-w-[900px] text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs text-slate-600">
-                <th className="px-3 py-2">工場</th>
-                <th className="px-3 py-2">ライン</th>
-                <th className="px-3 py-2">種別</th>
-                <th className="px-3 py-2 text-right">ライン実力</th>
-                <th className="px-3 py-2 text-right">計画数</th>
-                <th className="px-3 py-2">最終報告</th>
-                <th className="px-3 py-2 text-right">理論</th>
-                <th className="px-3 py-2 text-right">実績</th>
-                <th className="px-3 py-2 text-right">差異</th>
-                <th className="px-3 py-2 text-right">残業</th>
-                <th className="px-3 py-2">状態</th>
-              </tr>
-            </thead>
-            <tbody>
-              {statuses.map((s) => {
-                const unit = QTY_LABEL[s.line.lineType].unit;
-                return (
-                  <tr key={s.line.id} className="border-b border-slate-100 last:border-0">
-                    <td className="px-3 py-2 text-slate-600">{s.line.factoryName}</td>
-                    <td className="px-3 py-2">
-                      <Link
-                        href={`/report?line=${s.line.id}&factory=${s.line.factoryId}&date=${date}`}
-                        className="font-medium text-brand-700 hover:underline"
-                      >
-                        {s.line.name}
-                      </Link>
-                      <div className="text-[11px] text-slate-400">
-                        {s.plan?.startTime ?? s.line.startTime}–{shiftEnd(s.line, s.plan)}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2">
-                      <LineTypeBadge type={s.line.lineType} />
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums text-slate-600">
-                      {formatNumber(s.line.capacityPerDay)}
-                      {unit}
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums">
-                      {s.plan ? `${formatNumber(s.plan.plannedQty)}${unit}` : "—"}
-                    </td>
-                    <td className="px-3 py-2 text-slate-600">
-                      {s.last ? s.last.reportTime : "—"}
-                      {!s.last && s.theoreticalNow !== null ? (
-                        <span className="ml-1 text-xs text-amber-700">
-                          （現時点の目安 {s.theoreticalNow}
-                          {unit}）
-                        </span>
-                      ) : null}
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums text-slate-600">
-                      {s.last ? formatNumber(s.last.theoreticalQty) : "—"}
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums">
-                      {s.last ? formatNumber(s.last.actualQty) : "—"}
-                    </td>
-                    <td
-                      className={`px-3 py-2 text-right tabular-nums ${
-                        s.gap !== null && s.gap > 0 ? "font-semibold text-rose-600" : ""
-                      }`}
-                    >
-                      {s.gap === null
-                        ? "—"
-                        : s.gap > 0
-                          ? `-${formatNumber(s.gap)}`
-                          : `+${formatNumber(-s.gap)}`}
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums">
-                      {s.overtimeMinutes > 0 ? formatHours(s.overtimeMinutes) : "—"}
-                    </td>
-                    <td className="px-3 py-2">
-                      <span
-                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${STATE_CLASS[s.state]}`}
-                      >
-                        {STATE_LABEL[s.state]}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        <div className="space-y-5">
+          {factories
+            .map((f) => ({ factory: f, rows: statuses.filter((s) => s.line.factoryId === f.id) }))
+            .filter((g) => g.rows.length > 0)
+            .map(({ factory, rows }) => (
+              <FactorySection key={factory.id} factory={factory} rows={rows} date={date} />
+            ))}
         </div>
       )}
     </div>
+  );
+}
+
+/** 工場1つぶんの進捗。ラインは器種つきで並べ、見出しにその工場の状況をまとめる。 */
+function FactorySection({
+  factory,
+  rows,
+  date,
+}: {
+  factory: Factory;
+  rows: LineStatus[];
+  date: string;
+}) {
+  const behind = rows.filter((s) => s.state === "behind").length;
+  const unreported = rows.filter((s) => s.state === "unreported").length;
+  const otMinutes = rows.reduce((sum, s) => sum + s.overtimeMinutes, 0);
+
+  return (
+    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-slate-200 bg-brand-50 px-4 py-3">
+        {factory.code ? (
+          <span className="rounded bg-brand-200 px-1.5 py-0.5 font-mono text-xs font-bold text-brand-900">
+            {factory.code}
+          </span>
+        ) : null}
+        <h2 className="text-sm font-bold text-slate-900">{factory.name}</h2>
+        <span className="text-xs text-slate-500">{rows.length}ライン</span>
+        <span className="ml-auto flex flex-wrap items-center gap-x-3 text-xs">
+          <span className={behind > 0 ? "font-semibold text-rose-600" : "text-slate-500"}>
+            遅延 {behind}
+          </span>
+          <span className={unreported > 0 ? "font-semibold text-amber-600" : "text-slate-500"}>
+            未報告 {unreported}
+          </span>
+          <span className="text-slate-600">
+            残業 {otMinutes > 0 ? formatHours(otMinutes) : "—"}
+          </span>
+        </span>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="print-table w-full min-w-[900px] text-sm">
+          <thead>
+            <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs text-slate-600">
+              <th className="px-3 py-2">ライン</th>
+              <th className="px-3 py-2">器種</th>
+              <th className="px-3 py-2">種別</th>
+              <th className="px-3 py-2 text-right">ライン実力</th>
+              <th className="px-3 py-2 text-right">計画数</th>
+              <th className="px-3 py-2">最終報告</th>
+              <th className="px-3 py-2 text-right">理論</th>
+              <th className="px-3 py-2 text-right">実績</th>
+              <th className="px-3 py-2 text-right">差異</th>
+              <th className="px-3 py-2 text-right">残業</th>
+              <th className="px-3 py-2">状態</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((s) => {
+              const unit = QTY_LABEL[s.line.lineType].unit;
+              return (
+                <tr key={s.line.id} className="border-b border-slate-100 last:border-0">
+                  <td className="px-3 py-2">
+                    <Link
+                      href={`/report?line=${s.line.id}&factory=${s.line.factoryId}&date=${date}`}
+                      className="font-medium text-brand-700 hover:underline"
+                    >
+                      {s.line.name}
+                    </Link>
+                    <div className="text-[11px] text-slate-400">
+                      {s.plan?.startTime ?? s.line.startTime}–{shiftEnd(s.line, s.plan)}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2 text-slate-700">{s.line.product ?? "—"}</td>
+                  <td className="px-3 py-2">
+                    <LineTypeBadge type={s.line.lineType} />
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums text-slate-600">
+                    {formatNumber(s.line.capacityPerDay)}
+                    {unit}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {s.plan ? `${formatNumber(s.plan.plannedQty)}${unit}` : "—"}
+                  </td>
+                  <td className="px-3 py-2 text-slate-600">
+                    {s.last ? s.last.reportTime : "—"}
+                    {!s.last && s.theoreticalNow !== null ? (
+                      <span className="ml-1 text-xs text-amber-700">
+                        （現時点の目安 {s.theoreticalNow}
+                        {unit}）
+                      </span>
+                    ) : null}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums text-slate-600">
+                    {s.last ? formatNumber(s.last.theoreticalQty) : "—"}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {s.last ? formatNumber(s.last.actualQty) : "—"}
+                  </td>
+                  <td
+                    className={`px-3 py-2 text-right tabular-nums ${
+                      s.gap !== null && s.gap > 0 ? "font-semibold text-rose-600" : ""
+                    }`}
+                  >
+                    {s.gap === null
+                      ? "—"
+                      : s.gap > 0
+                        ? `-${formatNumber(s.gap)}`
+                        : `+${formatNumber(-s.gap)}`}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {s.overtimeMinutes > 0 ? formatHours(s.overtimeMinutes) : "—"}
+                  </td>
+                  <td className="px-3 py-2">
+                    <span
+                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${STATE_CLASS[s.state]}`}
+                    >
+                      {STATE_LABEL[s.state]}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
