@@ -11,8 +11,10 @@ import {
 import {
   createFactory,
   createLine,
+  createReminder,
   deleteFactory,
   deleteLine,
+  deleteReminder,
   deleteReport,
   applyApproval,
   getLine,
@@ -24,6 +26,7 @@ import {
   updateFactory,
   updateLine,
   updateLineRow,
+  updateReminder,
   upsertPlan,
 } from "./db";
 import { parseBreaks, theoreticalAt } from "./capacity";
@@ -350,4 +353,57 @@ export async function deleteLineAction(fd: FormData): Promise<void> {
   await deleteLine(id);
   revalidatePath("/masters");
   revalidatePath("/report");
+}
+
+/* ===== マスタ：入力を促す定期通知 ===== */
+
+/** チェックボックス weekday_0..6 から曜日の配列を作る。 */
+function readWeekdays(fd: FormData): number[] {
+  const days: number[] = [];
+  for (let d = 0; d <= 6; d++) if (bool(fd, `weekday_${d}`)) days.push(d);
+  return days;
+}
+
+/** 宛先の社員番号。カンマ・空白・改行のどれで区切ってもよい。 */
+function readRecipients(fd: FormData): string[] {
+  return [
+    ...new Set(
+      str(fd, "recipients")
+        .split(/[,、\s]+/)
+        .map((v) => v.trim())
+        .filter(Boolean)
+    ),
+  ];
+}
+
+export async function saveReminderAction(fd: FormData): Promise<void> {
+  await requireMasterEditor();
+  const id = optStr(fd, "id");
+  const factoryId = str(fd, "factoryId");
+  if (!factoryId) throw new Error("工場を選んでください");
+  const weekdays = readWeekdays(fd);
+  if (weekdays.length === 0) throw new Error("通知する曜日を1つ以上選んでください");
+
+  const input = {
+    factoryId,
+    // ラインを選ばなければ工場全体への通知
+    lineId: optStr(fd, "lineId"),
+    remindTime: time(fd, "remindTime", "10:00"),
+    weekdays,
+    recipients: readRecipients(fd),
+    message: optStr(fd, "message"),
+    skipIfReported: bool(fd, "skipIfReported"),
+    active: bool(fd, "active"),
+  };
+  if (id) await updateReminder(id, input);
+  else await createReminder(input);
+  revalidatePath("/masters");
+}
+
+export async function deleteReminderAction(fd: FormData): Promise<void> {
+  await requireMasterEditor();
+  const id = str(fd, "id");
+  if (!id) return;
+  await deleteReminder(id);
+  revalidatePath("/masters");
 }

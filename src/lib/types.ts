@@ -216,6 +216,42 @@ export function gapOf(report: { theoreticalQty: number; actualQty: number }): nu
 }
 
 
+/**
+ * 入力を促す定期通知の設定。
+ * 工場（ラインは任意）ごとに、何曜日の何時に誰へ送るかを持つ。
+ */
+export interface Reminder {
+  id: string;
+  factoryId: string;
+  factoryName: string;
+  /** 特定ラインを促すとき。null なら工場全体 */
+  lineId: string | null;
+  lineName: string | null;
+  /** 通知時刻 "HH:MM"（JST） */
+  remindTime: string;
+  /** 送る曜日（0=日 … 6=土） */
+  weekdays: number[];
+  /** 宛先の社員番号。空なら対象工場のメンバー全員 */
+  recipients: string[];
+  message: string | null;
+  /** その時点で報告済みなら送らない */
+  skipIfReported: boolean;
+  active: boolean;
+  /** 最後に送った日（JST）。同じ日の二重送信を防ぐ */
+  lastSentDate: string | null;
+}
+
+export const WEEKDAY_LABEL = ["日", "月", "火", "水", "木", "金", "土"] as const;
+
+/** 曜日の配列を「月・火・水・木・金」のような表示にする。 */
+export function formatWeekdays(days: number[]): string {
+  const sorted = [...new Set(days)].filter((d) => d >= 0 && d <= 6).sort((a, b) => a - b);
+  if (sorted.length === 0) return "なし";
+  if (sorted.length === 7) return "毎日";
+  if (sorted.join(",") === "1,2,3,4,5") return "平日";
+  return sorted.map((d) => WEEKDAY_LABEL[d]).join("・");
+}
+
 /** 集計行（工場×職場、または工場のみ）。 */
 export interface SummaryRow {
   factoryId: string;
