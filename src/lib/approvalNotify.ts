@@ -1,5 +1,5 @@
 /**
- * 翌日回しの許可待ちが出たときに、許可を出す人へ LINE WORKS で通知する（ポータル経由）。
+ * 翌日回しの申請・結果を LINE WORKS で通知する（ポータル経由）。
  *
  * このアプリで承認が要るのは翌日回し(defer)だけで、判断するのは申請者の上長ではなく
  * 生産管理部（マスタ編集権限者）。そのため通知先はこのアプリ側で決めて、
@@ -27,8 +27,25 @@ function approvalsUrl(): string | undefined {
  * @param summary 本文（「〈申請者〉さんから翌日回しの申請が届いています。日付・ライン」など）
  */
 export function notifyApprovalRequested(approverLoginIds: string[], summary: string): void {
+  send(approverLoginIds, "翌日回しの許可依頼", summary);
+}
+
+/**
+ * 許可・差し戻しの結果を、申請者と対象工場のメンバーへ通知する。
+ * 判断の結果は現場が動くかどうかを左右するため、申請者だけでなく工場全体に届ける。
+ */
+export function notifyApprovalDecided(
+  loginIds: string[],
+  approved: boolean,
+  summary: string
+): void {
+  send(loginIds, approved ? "翌日回しが許可されました" : "翌日回しが差し戻されました", summary);
+}
+
+/** ポータルの通知APIへ投げる（重複を除き、失敗しても例外にしない）。 */
+function send(loginIds: string[], title: string, summary: string): void {
   const key = (process.env.PF_PROVISION_KEY ?? "").trim();
-  const to = approverLoginIds.filter(Boolean);
+  const to = [...new Set(loginIds.filter(Boolean))];
   if (!key || to.length === 0) return;
 
   const controller = new AbortController();
@@ -40,7 +57,7 @@ export function notifyApprovalRequested(approverLoginIds: string[], summary: str
       key,
       loginIds: to,
       app: APP_KEY,
-      title: "翌日回しの許可依頼",
+      title,
       message: summary,
       url: approvalsUrl(),
     }),

@@ -3,7 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdminSession, requireMasterEditor, masterEditDepartments } from "./session";
-import { listMasterEditorLoginIds } from "./authDb";
+import {
+  findLoginIdById,
+  listFactoryMemberLoginIds,
+  listMasterEditorLoginIds,
+} from "./authDb";
 import {
   createFactory,
   createLine,
@@ -23,7 +27,7 @@ import {
   upsertPlan,
 } from "./db";
 import { parseBreaks, theoreticalAt } from "./capacity";
-import { notifyApprovalRequested } from "./approvalNotify";
+import { notifyApprovalDecided, notifyApprovalRequested } from "./approvalNotify";
 import {
   isLineType,
   isOvertimeDecision,
@@ -162,9 +166,13 @@ export async function saveReportAction(fd: FormData): Promise<void> {
   // 宛先もここで決めてポータルへ渡す。
   if (overtimeDecision === "defer") {
     try {
-      const approvers = await listMasterEditorLoginIds(masterEditDepartments());
+      // 許可を出す生産管理部に加えて、対象工場のメンバーにも申請を共有する
+      const [approvers, factoryMembers] = await Promise.all([
+        listMasterEditorLoginIds(masterEditDepartments()),
+        listFactoryMemberLoginIds(line.factoryName),
+      ]);
       notifyApprovalRequested(
-        approvers.filter((id) => id !== session.loginId),
+        [...approvers, ...factoryMembers].filter((id) => id !== session.loginId),
         `${session.userName} さんから翌日回しの許可申請が届いています。\n` +
           `${reportDate}　${line.factoryName} / ${line.name}` +
           (reason ? `\n理由：${reason}` : "")
@@ -207,7 +215,31 @@ export async function approveReportAction(fd: FormData): Promise<void> {
     throw new Error("差し戻しの理由を記載してください");
   }
 
-  await applyApproval(id, verdict === "approve" ? "approved" : "rejected", session.userId, comment);
+  const approved = verdict === "approve";
+  await applyApproval(id, approved ? "approved" : "rejected", session.userId, comment);
+
+  // 結果は申請者だけでなく、対象工場のメンバーにも届ける
+  // （翌日回しの可否でその工場の翌日の段取りが変わるため）
+  try {
+    const [reporterLoginId, factoryMembers] = await Promise.all([
+      report.reportedById ? findLoginIdById(report.reportedById) : Promise.resolve(null),
+      listFactoryMemberLoginIds(report.factoryName),
+    ]);
+    const to = [reporterLoginId, ...factoryMembers].filter(
+      (v): v is string => !!v && v !== session.loginId
+    );
+    notifyApprovalDecided(
+      to,
+      approved,
+      `${report.reportDate}　${report.factoryName} / ${report.lineName}\n` +
+        `${session.userName} さんが${approved ? "許可しました" : "差し戻しました"}。` +
+        (comment ? `\nコメント：${comment}` : "")
+    );
+  } catch (e) {
+    // 通知に失敗しても許可・差し戻しは成立させる
+    console.error("[approveReport] 結果の通知に失敗:", e);
+  }
+
   revalidatePath("/approvals");
   revalidatePath("/reports");
   revalidatePath("/dashboard");
