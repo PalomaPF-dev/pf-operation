@@ -22,6 +22,7 @@ import {
   upsertPlan,
 } from "./db";
 import { parseBreaks, theoreticalAt } from "./capacity";
+import { notifyApprovalRequested } from "./approvalNotify";
 import {
   isLineType,
   isOvertimeDecision,
@@ -154,6 +155,19 @@ export async function saveReportAction(fd: FormData): Promise<void> {
     },
     session.userId
   );
+
+  // 承認が必要な報告（残業の実施・翌日回し）のときだけ、承認者へLINE WORKS通知を送る。
+  // 進捗だけの報告は承認待ちにならないので通知しない（saveReport の needsApproval と同じ条件）。
+  if (overtimeDecision === "do" || overtimeDecision === "defer") {
+    const what =
+      overtimeDecision === "do"
+        ? `残業 ${overtimeHeadcount}名 × ${overtimeMinutesPerPerson}分`
+        : "翌日回し";
+    notifyApprovalRequested(
+      session.loginId,
+      `${session.userName} さんから${what}の申請が届いています。\n${reportDate}　${line.factoryName} / ${line.name}`
+    );
+  }
 
   revalidatePath("/dashboard");
   revalidatePath("/reports");
