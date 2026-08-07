@@ -27,11 +27,17 @@ export function addDays(date: string, days: number): string {
   return toDateString(d);
 }
 
-/** "YYYY-MM-DD" → "M/D(曜)"。 */
+/**
+ * "YYYY-MM-DD" → "M/D(曜)"。
+ *
+ * 曜日は日付そのものから出す。JST の 0:00 は UTC では前日の 15:00 になるため、
+ * getUTCDay() を使うと曜日が1日ずれる（8/7(金) が木と出ていた）。
+ */
 export function formatDate(value: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (!m) return value;
-  const d = new Date(`${value}T00:00:00+09:00`);
+  // UTC 正午で作れば、どのタイムゾーンで解釈してもその日のままになる
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12));
   const week = ["日", "月", "火", "水", "木", "金", "土"][d.getUTCDay()];
   return `${Number(m[2])}/${Number(m[3])}(${week})`;
 }
