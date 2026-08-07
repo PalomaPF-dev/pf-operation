@@ -137,3 +137,17 @@ export async function syncApproverFromPortal(
     UPDATE op_users SET approver_id = ${approverId}, updated_at = now()
     WHERE id = ${user.id}`;
 }
+
+/**
+ * 翌日回しの許可を出せる人（生産管理部の管理者・ポータル管理権限者）の社員番号。
+ * 許可待ちの通知先に使う。判定は canEditMaster（src/lib/session.ts）と同じ条件。
+ */
+export async function listMasterEditorLoginIds(departments: string[]): Promise<string[]> {
+  const sql = getSql();
+  const rows = (await sql`
+    SELECT login_id FROM op_users
+    WHERE role = 'admin'
+      AND (portal_admin = true OR department = ANY(${departments}::text[]))
+    ORDER BY login_id`) as { login_id: string }[];
+  return rows.map((r) => String(r.login_id)).filter(Boolean);
+}
