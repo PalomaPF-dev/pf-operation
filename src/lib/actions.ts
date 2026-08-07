@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { requireAdminSession, requireMasterEditor } from "./session";
+import { requireAdminSession, requireMasterEditor, masterEditDepartments } from "./session";
+import { listMasterEditorLoginIds } from "./authDb";
 import {
   createFactory,
   createLine,
@@ -22,6 +23,7 @@ import {
   upsertPlan,
 } from "./db";
 import { parseBreaks, theoreticalAt } from "./capacity";
+import { notifyApprovalRequested } from "./approvalNotify";
 import {
   isLineType,
   isOvertimeDecision,
@@ -154,6 +156,24 @@ export async function saveReportAction(fd: FormData): Promise<void> {
     },
     session.userId
   );
+
+  // 許可待ちになるのは翌日回しだけ（saveReport で approval_status を付ける条件と同じ）。
+  // 残業の実施は承認不要なので通知しない。判断するのは上長ではなく生産管理部のため、
+  // 宛先もここで決めてポータルへ渡す。
+  if (overtimeDecision === "defer") {
+    try {
+      const approvers = await listMasterEditorLoginIds(masterEditDepartments());
+      notifyApprovalRequested(
+        approvers.filter((id) => id !== session.loginId),
+        `${session.userName} さんから翌日回しの許可申請が届いています。\n` +
+          `${reportDate}　${line.factoryName} / ${line.name}` +
+          (reason ? `\n理由：${reason}` : "")
+      );
+    } catch (e) {
+      // 通知先を引けなくても報告は成立させる
+      console.error("[saveReport] 許可依頼の通知先取得に失敗:", e);
+    }
+  }
 
   revalidatePath("/dashboard");
   revalidatePath("/reports");
