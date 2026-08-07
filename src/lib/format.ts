@@ -27,6 +27,62 @@ export function addDays(date: string, days: number): string {
   return toDateString(d);
 }
 
+/** 今月（JST）の "YYYY-MM"。 */
+export function currentMonth(): string {
+  return todayString().slice(0, 7);
+}
+
+/** "YYYY-MM" に月数を足す（負なら遡る）。 */
+export function addMonths(month: string, delta: number): string {
+  const m = /^(\d{4})-(\d{2})$/.exec(month);
+  if (!m) return month;
+  const total = Number(m[1]) * 12 + (Number(m[2]) - 1) + delta;
+  const y = Math.floor(total / 12);
+  return `${String(y).padStart(4, "0")}-${String((total % 12) + 1).padStart(2, "0")}`;
+}
+
+/** "YYYY-MM" → "2026年8月"。 */
+export function formatMonth(month: string): string {
+  const m = /^(\d{4})-(\d{2})$/.exec(month);
+  return m ? `${Number(m[1])}年${Number(m[2])}月` : month;
+}
+
+/**
+ * 月のカレンダー（日曜始まり）を作る。前後の月にはみ出す枠も日付で埋める。
+ * 曜日は UTC 正午で出す（JST の 0:00 だと UTC では前日になり1日ずれる）。
+ */
+export function monthWeeks(month: string): { date: string; day: number; weekday: number; inMonth: boolean }[][] {
+  const m = /^(\d{4})-(\d{2})$/.exec(month);
+  if (!m) return [];
+  const year = Number(m[1]);
+  const mon = Number(m[2]);
+  const first = new Date(Date.UTC(year, mon - 1, 1, 12));
+  const start = new Date(first.getTime() - first.getUTCDay() * 86400000);
+  const weeks: { date: string; day: number; weekday: number; inMonth: boolean }[][] = [];
+  const cur = new Date(start.getTime());
+  for (let w = 0; w < 6; w++) {
+    const week = [];
+    for (let d = 0; d < 7; d++) {
+      const y = cur.getUTCFullYear();
+      const mm = cur.getUTCMonth() + 1;
+      const dd = cur.getUTCDate();
+      week.push({
+        date: `${y}-${String(mm).padStart(2, "0")}-${String(dd).padStart(2, "0")}`,
+        day: dd,
+        weekday: cur.getUTCDay(),
+        inMonth: mm === mon && y === year,
+      });
+      cur.setUTCDate(dd + 1);
+    }
+    weeks.push(week);
+    // その月を出し切ったら終わり（週の数は月によって4〜6で変わる）
+    const passed =
+      cur.getUTCFullYear() > year || (cur.getUTCFullYear() === year && cur.getUTCMonth() + 1 > mon);
+    if (passed) break;
+  }
+  return weeks;
+}
+
 /**
  * "YYYY-MM-DD" → "M/D(曜)"。
  *

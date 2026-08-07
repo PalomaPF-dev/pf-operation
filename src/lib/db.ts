@@ -875,17 +875,37 @@ function mapCalendarDay(r: any): CalendarDay {
   };
 }
 
-/** 登録済みの休業日・臨時稼働日を引く（from 以降。既定は全件）。 */
-export async function listCalendarDays(from?: string): Promise<CalendarDay[]> {
+/** 登録済みの休業日・臨時稼働日を引く（from 以降 to 以前。省略すれば全件）。 */
+export async function listCalendarDays(from?: string, to?: string): Promise<CalendarDay[]> {
   await ensureSchema();
   const sql = getSql();
   const rows = await sql`
     SELECT c.id, c.factory_id, f.name AS factory_name, c.the_date, c.working, c.note
     FROM op_calendar c
     LEFT JOIN op_factories f ON f.id = c.factory_id
-    WHERE ${from ?? null}::date IS NULL OR c.the_date >= ${from ?? null}::date
+    WHERE (${from ?? null}::date IS NULL OR c.the_date >= ${from ?? null}::date)
+      AND (${to ?? null}::date IS NULL OR c.the_date <= ${to ?? null}::date)
     ORDER BY c.the_date, f.sort_order NULLS FIRST, f.name`;
   return (rows as any[]).map(mapCalendarDay);
+}
+
+/** 1日ぶんの指定を引く（工場を指定しなければ全工場共通の行）。 */
+export async function getCalendarDay(
+  factoryId: string | null,
+  date: string
+): Promise<CalendarDay | null> {
+  await ensureSchema();
+  const sql = getSql();
+  const rows = factoryId
+    ? await sql`
+        SELECT c.id, c.factory_id, f.name AS factory_name, c.the_date, c.working, c.note
+        FROM op_calendar c LEFT JOIN op_factories f ON f.id = c.factory_id
+        WHERE c.factory_id = ${factoryId} AND c.the_date = ${date}::date`
+    : await sql`
+        SELECT c.id, c.factory_id, NULL AS factory_name, c.the_date, c.working, c.note
+        FROM op_calendar c
+        WHERE c.factory_id IS NULL AND c.the_date = ${date}::date`;
+  return rows[0] ? mapCalendarDay(rows[0]) : null;
 }
 
 export interface CalendarDayInput {

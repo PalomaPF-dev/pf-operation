@@ -39,6 +39,8 @@ Notably in this repo: the `middleware` file convention is deprecated and renamed
 - 稼働日は `op_calendar`（`factory_id` が NULL なら全工場共通。工場の行があればそちらが優先）。
   休業日（`working = false`）は定期通知を送らず、臨時稼働（true）は曜日の設定に関係なく送る。
   曜日だけでは拾えない祝日・お盆・年末年始と休日出勤をここで持つ。
+  画面は月のカレンダーで、日を押すたびに 指定なし→休業日→臨時稼働 と回す
+  （`toggleCalendarDayAction`。月・対象工場は `?month=` `?factory=` で持つ）。
 - 残業の申請内容は「人数 × 一人当たりの分」（`op_reports.overtime_headcount / overtime_minutes`）。
   対象者個人は記録しない（`op_overtime_members` は旧形式で、新規には書かない）。
 - 理論値の計算は `src/lib/capacity.ts` に集約。休憩は実時刻で差し引き、稼働時間(H)で頭打ちにする。

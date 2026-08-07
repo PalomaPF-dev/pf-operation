@@ -19,9 +19,17 @@ import {
   saveFactoryAction,
   saveLineAction,
   saveRemindersAction,
+  toggleCalendarDayAction,
 } from "@/lib/actions";
 import { formatBreaks } from "@/lib/capacity";
-import { addDays, formatDate, todayString } from "@/lib/format";
+import {
+  addMonths,
+  currentMonth,
+  formatDate,
+  formatMonth,
+  monthWeeks,
+  todayString,
+} from "@/lib/format";
 import {
   LINE_TYPE_LABEL,
   QTY_LABEL,
@@ -66,7 +74,7 @@ function num(v: number, digits = 1): string {
 export default async function MastersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; month?: string; factory?: string }>;
 }) {
   const session = await requireAdminSession();
   const sp = await searchParams;
@@ -74,15 +82,20 @@ export default async function MastersPage({
   // 編集可否はページでもサーバーアクションでも判定する（画面はボタンを出さないだけ）
   const canEdit = session.canEditMaster;
 
-  // 稼働日は「先月ぶんから先」を見せる（過ぎた休みを延々と並べない）
+  // 稼働日は月のカレンダーで見せる（既定は今月）
   const today = todayString();
+  const month = /^\d{4}-\d{2}$/.test(sp.month ?? "") ? (sp.month as string) : currentMonth();
+  // カレンダーは前後の月にはみ出す枠も描くので、その分も引いておく
+  const monthFrom = `${addMonths(month, -1)}-01`;
+  const monthTo = `${addMonths(month, 1)}-28`;
+
   let factories, lines, reminders, calendarDays;
   try {
     [factories, lines, reminders, calendarDays] = await Promise.all([
       listFactories(),
       listLines(),
       listReminders(),
-      listCalendarDays(addDays(today, -30)),
+      listCalendarDays(monthFrom, monthTo),
     ]);
   } catch (e) {
     console.error("[masters]", e);
@@ -148,6 +161,8 @@ export default async function MastersPage({
           days={calendarDays}
           canEdit={canEdit}
           today={today}
+          month={month}
+          scopeId={factories.some((f) => f.id === sp.factory) ? (sp.factory as string) : null}
         />
       ) : null}
     </div>
@@ -953,19 +968,38 @@ function RemindersTab({
   );
 }
 
-/* ===== 稼働日（休業日・臨時稼働日） ===== */
+/* ===== 稼働日（休業日・臨時稼働日） =====
+   月のカレンダーで、日を押すたびに 指定なし → 休業日 → 臨時稼働 → 指定なし と切り替える。 */
+
+const CAL_CELL =
+  "flex h-16 w-full flex-col items-start gap-0.5 rounded-lg border px-1.5 py-1 text-left transition-colors sm:h-20";
 
 function CalendarTab({
   factories,
   days,
   canEdit,
   today,
+  month,
+  scopeId,
 }: {
   factories: Factory[];
   days: CalendarDay[];
   canEdit: boolean;
   today: string;
+  /** 表示中の月 "YYYY-MM" */
+  month: string;
+  /** 表示中の対象。null なら全工場共通 */
+  scopeId: string | null;
 }) {
+  const scope = factories.find((f) => f.id === scopeId) ?? null;
+  // 表示中の対象の指定と、参考に見せる全工場共通の指定
+  const mine = new Map(days.filter((d) => d.factoryId === scopeId).map((d) => [d.date, d]));
+  const common = new Map(days.filter((d) => d.factoryId === null).map((d) => [d.date, d]));
+  const weeks = monthWeeks(month);
+  const scopeQuery = scope ? `&factory=${scope.id}` : "";
+  const monthLink = (m: string) => `/masters?tab=calendar&month=${m}${scopeQuery}`;
+  const rows = [...mine.values()].sort((a, b) => a.date.localeCompare(b.date));
+
   return (
     <div className="space-y-4">
       <p className="text-xs text-slate-600">
@@ -975,96 +1009,144 @@ function CalendarTab({
           定期通知
         </Link>
         を送りません。臨時稼働にした日は、曜日の設定に入っていなくても送ります。
-        工場を選ばなければ全工場共通（会社休日）になり、同じ日に工場の設定があればそちらが優先されます。
+        {canEdit ? "日付を押すたびに 休業日 → 臨時稼働 → 指定なし と変わります。" : null}
       </p>
 
-      {canEdit ? (
-        <section className="rounded-xl border border-slate-200 bg-white p-4">
-          <h2 className="mb-3 text-sm font-semibold text-slate-900">休業日・臨時稼働日を追加</h2>
-          <form action={saveCalendarDayAction} className="flex flex-wrap items-end gap-3">
-            <Field label="日付">
-              <input
-                type="date"
-                name="date"
-                required
-                defaultValue={today}
-                className={`${inputCls} w-44`}
-              />
-            </Field>
-            <Field label="工場（未選択なら全工場共通）">
-              <select name="factoryId" defaultValue="" className={`${inputCls} w-44`}>
-                <option value="">全工場共通</option>
-                {factories.map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="区分">
-              <select name="kind" defaultValue="holiday" className={`${inputCls} w-32`}>
-                <option value="holiday">休業日</option>
-                <option value="working">臨時稼働</option>
-              </select>
-            </Field>
-            <Field label="メモ（任意）">
-              <input
-                type="text"
-                name="note"
-                maxLength={100}
-                placeholder="例）お盆休み"
-                className={`${inputCls} w-56`}
-              />
-            </Field>
-            <SubmitButton>追加</SubmitButton>
-          </form>
-          <p className="mt-2 text-xs text-slate-500">
-            同じ工場・同じ日をもう一度追加すると、あとから入れた内容で上書きされます。
-          </p>
-        </section>
-      ) : null}
+      {/* 対象の切り替え。全工場共通（会社休日）と工場ごとの指定を分けて持つ */}
+      <nav className="flex flex-wrap gap-1.5">
+        {[{ id: null as string | null, name: "全工場共通" }, ...factories].map((f) => {
+          const active = (f.id ?? null) === scopeId;
+          return (
+            <Link
+              key={f.id ?? "common"}
+              href={`/masters?tab=calendar&month=${month}${f.id ? `&factory=${f.id}` : ""}`}
+              className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+                active
+                  ? "bg-brand-700 text-white"
+                  : "border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              {f.name}
+            </Link>
+          );
+        })}
+      </nav>
 
-      {days.length === 0 ? (
-        <p className="text-sm text-slate-500">稼働日の設定はまだありません（曜日の設定どおりに送ります）。</p>
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+        <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-brand-50 px-4 py-3">
+          <Link
+            href={monthLink(addMonths(month, -1))}
+            className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+          >
+            ← 前の月
+          </Link>
+          <span className="text-sm font-bold text-slate-900">{formatMonth(month)}</span>
+          <Link
+            href={monthLink(addMonths(month, 1))}
+            className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+          >
+            次の月 →
+          </Link>
+          {month === today.slice(0, 7) ? null : (
+            <Link href={monthLink(today.slice(0, 7))} className="text-xs text-brand-700 underline">
+              今月へ
+            </Link>
+          )}
+          <span className="ml-auto text-xs text-slate-600">
+            {scope ? scope.name : "全工場共通（会社休日）"}
+          </span>
+        </div>
+
+        <CalendarGrid
+          weeks={weeks}
+          mine={mine}
+          common={common}
+          canEdit={canEdit}
+          today={today}
+          month={month}
+          scopeId={scopeId}
+          showCommon={scopeId !== null}
+        />
+
+        <div className="flex flex-wrap items-center gap-3 border-t border-slate-100 px-4 py-3 text-[11px] text-slate-600">
+          <span className="flex items-center gap-1">
+            <span className="h-3 w-3 rounded border border-rose-300 bg-rose-100" />休業日（通知を送らない）
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="h-3 w-3 rounded border border-brand-400 bg-brand-100" />臨時稼働（曜日に関係なく送る）
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="h-3 w-3 rounded border border-slate-200 bg-white" />指定なし（曜日の設定どおり）
+          </span>
+          {scopeId ? <span>「共」＝全工場共通の指定（この工場の指定があればそちらが優先）</span> : null}
+        </div>
+      </section>
+
+      {rows.length === 0 ? (
+        <p className="text-sm text-slate-500">
+          {formatMonth(month)}の{scope ? scope.name : "全工場共通"}の指定はありません（曜日の設定どおりに送ります）。
+        </p>
       ) : (
         <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+          <h3 className="border-b border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-900">
+            {formatMonth(month)}の指定
+          </h3>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[40rem] border-collapse">
+            <table className="w-full min-w-[36rem] border-collapse">
               <thead className="bg-slate-50">
                 <tr className="border-b border-slate-200">
-                  <th className={`${TH} w-32`}>日付</th>
-                  <th className={`${TH} w-40`}>対象</th>
+                  <th className={`${TH} w-28`}>日付</th>
                   <th className={`${TH} w-28`}>区分</th>
                   <th className={TH}>メモ</th>
                   {canEdit ? <th className={`${TH} w-24`} /> : null}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {days.map((d) => (
+                {rows.map((d) => (
                   <tr key={d.id} className={d.date < today ? "text-slate-400" : ""}>
                     <td className={`${TD} whitespace-nowrap font-bold text-slate-900`}>
                       {formatDate(d.date)}
                     </td>
-                    <td className={TD}>{d.factoryName ?? "全工場共通"}</td>
                     <td className={TD}>
                       {d.working ? (
                         <span className="rounded-full bg-brand-100 px-2 py-0.5 text-[11px] font-medium text-brand-800">
                           臨時稼働
                         </span>
                       ) : (
-                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                        <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-medium text-rose-700">
                           休業日
                         </span>
                       )}
                     </td>
-                    <td className={`${TD} text-xs text-slate-600`}>{d.note ?? ""}</td>
+                    <td className={TD}>
+                      {canEdit ? (
+                        <form action={saveCalendarDayAction} className="flex items-center gap-2">
+                          <input type="hidden" name="date" value={d.date} />
+                          <input type="hidden" name="factoryId" value={d.factoryId ?? ""} />
+                          <input type="hidden" name="kind" value={d.working ? "working" : "holiday"} />
+                          <input
+                            type="text"
+                            name="note"
+                            defaultValue={d.note ?? ""}
+                            maxLength={100}
+                            placeholder="例）お盆休み"
+                            className={`${inputCls} w-full min-w-[12rem]`}
+                          />
+                          <SubmitButton className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60">
+                            保存
+                          </SubmitButton>
+                        </form>
+                      ) : (
+                        <span className="text-xs text-slate-600">{d.note ?? ""}</span>
+                      )}
+                    </td>
                     {canEdit ? (
                       <td className={TD}>
                         <form action={deleteCalendarDayAction}>
                           <input type="hidden" name="id" value={d.id} />
                           <SubmitButton
                             pendingLabel="削除中…"
-                            confirm={`${formatDate(d.date)}（${d.factoryName ?? "全工場共通"}）の設定を削除します。よろしいですか？`}
+                            confirm={`${formatDate(d.date)}（${d.factoryName ?? "全工場共通"}）の指定を消します。よろしいですか？`}
                             className={deleteCls}
                           >
                             削除
@@ -1080,6 +1162,130 @@ function CalendarTab({
         </section>
       )}
     </div>
+  );
+}
+
+function CalendarGrid({
+  weeks,
+  mine,
+  common,
+  canEdit,
+  today,
+  month,
+  scopeId,
+  showCommon,
+}: {
+  weeks: { date: string; day: number; weekday: number; inMonth: boolean }[][];
+  mine: Map<string, CalendarDay>;
+  common: Map<string, CalendarDay>;
+  canEdit: boolean;
+  today: string;
+  month: string;
+  scopeId: string | null;
+  showCommon: boolean;
+}) {
+  const grid = (
+    <div className="p-2 sm:p-3">
+      <div className="grid grid-cols-7 gap-1 pb-1">
+        {WEEKDAY_LABEL.map((label, d) => (
+          <div
+            key={d}
+            className={`text-center text-[11px] font-semibold ${
+              d === 0 ? "text-rose-500" : d === 6 ? "text-sky-600" : "text-slate-500"
+            }`}
+          >
+            {label}
+          </div>
+        ))}
+      </div>
+      <div className="grid grid-cols-7 gap-1">
+        {weeks.flat().map((cell) => (
+          <CalendarCell
+            key={cell.date}
+            cell={cell}
+            day={mine.get(cell.date)}
+            commonDay={showCommon ? common.get(cell.date) : undefined}
+            canEdit={canEdit}
+            isToday={cell.date === today}
+          />
+        ))}
+      </div>
+    </div>
+  );
+
+  if (!canEdit) return grid;
+  return (
+    <form action={toggleCalendarDayAction}>
+      <input type="hidden" name="factoryId" value={scopeId ?? ""} />
+      <input type="hidden" name="month" value={month} />
+      {grid}
+    </form>
+  );
+}
+
+function CalendarCell({
+  cell,
+  day,
+  commonDay,
+  canEdit,
+  isToday,
+}: {
+  cell: { date: string; day: number; weekday: number; inMonth: boolean };
+  day?: CalendarDay;
+  commonDay?: CalendarDay;
+  canEdit: boolean;
+  isToday: boolean;
+}) {
+  const tone = !day
+    ? "border-slate-200 bg-white hover:bg-slate-50"
+    : day.working
+      ? "border-brand-400 bg-brand-100 hover:bg-brand-200"
+      : "border-rose-300 bg-rose-100 hover:bg-rose-200";
+  const dim = cell.inMonth ? "" : "opacity-40";
+  const ring = isToday ? "ring-2 ring-brand-600 ring-offset-1" : "";
+  const dayColor = day
+    ? "text-slate-900"
+    : cell.weekday === 0
+      ? "text-rose-500"
+      : cell.weekday === 6
+        ? "text-sky-600"
+        : "text-slate-700";
+
+  const inner = (
+    <>
+      <span className={`text-xs font-bold tabular-nums ${dayColor}`}>{cell.day}</span>
+      {day ? (
+        <span
+          className={`rounded px-1 text-[10px] font-medium ${
+            day.working ? "bg-brand-700 text-white" : "bg-rose-600 text-white"
+          }`}
+        >
+          {day.working ? "稼働" : "休業"}
+        </span>
+      ) : commonDay ? (
+        <span className="rounded bg-slate-200 px-1 text-[10px] font-medium text-slate-600">
+          共{commonDay.working ? "稼働" : "休業"}
+        </span>
+      ) : null}
+      {day?.note ? (
+        <span className="line-clamp-2 text-[10px] leading-tight text-slate-600">{day.note}</span>
+      ) : null}
+    </>
+  );
+
+  if (!canEdit) {
+    return <div className={`${CAL_CELL} ${tone} ${dim} ${ring} cursor-default`}>{inner}</div>;
+  }
+  return (
+    <button
+      type="submit"
+      name="date"
+      value={cell.date}
+      title="押すたびに 休業日 → 臨時稼働 → 指定なし と変わります"
+      className={`${CAL_CELL} ${tone} ${dim} ${ring}`}
+    >
+      {inner}
+    </button>
   );
 }
 

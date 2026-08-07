@@ -17,6 +17,7 @@ import {
   deleteReminderTarget,
   deleteReport,
   applyApproval,
+  getCalendarDay,
   getLine,
   getReport,
   getUserScope,
@@ -431,6 +432,28 @@ export async function saveCalendarDayAction(fd: FormData): Promise<void> {
     working: str(fd, "kind") === "working",
     note: optStr(fd, "note"),
   });
+  revalidatePath("/masters");
+}
+
+/**
+ * カレンダーの日を押したときの切り替え。
+ * 何も指定していない日 →「休業日」→「臨時稼働」→ 指定なし の順で回す。
+ */
+export async function toggleCalendarDayAction(fd: FormData): Promise<void> {
+  await requireMasterEditor();
+  const date = str(fd, "date");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+  // 工場を選んでいなければ全工場共通（会社休日）の指定
+  const factoryId = optStr(fd, "factoryId");
+
+  const current = await getCalendarDay(factoryId, date);
+  if (!current) {
+    await upsertCalendarDay({ factoryId, date, working: false, note: null });
+  } else if (!current.working) {
+    await upsertCalendarDay({ factoryId, date, working: true, note: current.note });
+  } else {
+    await deleteCalendarDay(current.id);
+  }
   revalidatePath("/masters");
 }
 
