@@ -24,7 +24,7 @@ async function safeDdl(run: () => Promise<unknown>): Promise<void> {
  * DB 側の op_schema_info がこの版数以上なら、DDL を丸ごとスキップする
  * （サーバーレスの新インスタンスが毎回30本近い DDL を流すと起動が数秒遅くなるため）。
  */
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 let schemaReady: Promise<void> | null = null;
 
@@ -37,6 +37,7 @@ let schemaReady: Promise<void> | null = null;
  * - op_workers           … 旧グループ長マスタ（未使用。互換のため残置）
  * - op_daily_plans       … 日ごとの計画数・始業・投入人数
  * - op_reports           … 定期報告（進捗チェック／終業後）と残業の要否
+ * - op_reminders         … 入力を促す定期通知の設定（工場・ラインごとの時刻と宛先）
  * - op_overtime_members  … 残業の対象者と時間
  *
  * 同一プロセス内の同時呼び出しは1回の実行に集約（共有プロミス）。失敗時は次回再試行できるよう解除。
@@ -260,6 +261,34 @@ async function buildSchema(): Promise<void> {
   // ライン絞り込み用（ログインIDと作業者の社員番号を突き合わせる）
   await safeDdl(
     () => sql`CREATE INDEX IF NOT EXISTS op_workers_employee_idx ON op_workers (employee_no)`
+  );
+
+  // ===== 入力を促す定期通知 =====
+  // 工場（ライン指定は任意）ごとに「何曜日の何時に」「誰へ」通知するかを持つ。
+  // last_sent_date は同じ日に二重送信しないための記録（JSTの日付）。
+  await safeDdl(() => sql`
+    CREATE TABLE IF NOT EXISTS op_reminders (
+      id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      factory_id   uuid NOT NULL REFERENCES op_factories(id) ON DELETE CASCADE,
+      -- 特定ラインの入力を促すとき。NULL なら工場全体
+      line_id      uuid REFERENCES op_lines(id) ON DELETE CASCADE,
+      remind_time  time NOT NULL,
+      -- 送る曜日（0=日 … 6=土）。既定は平日
+      weekdays     smallint[] NOT NULL DEFAULT '{1,2,3,4,5}',
+      -- 宛先の社員番号。空なら対象工場のメンバー全員へ送る
+      recipients   text[] NOT NULL DEFAULT '{}',
+      -- 本文に足す一言（任意）
+      message      text,
+      -- その時点で報告済みなら送らない
+      skip_if_reported boolean NOT NULL DEFAULT true,
+      active       boolean NOT NULL DEFAULT true,
+      last_sent_date date,
+      created_at   timestamptz NOT NULL DEFAULT now(),
+      updated_at   timestamptz NOT NULL DEFAULT now()
+    )`);
+  await safeDdl(
+    () =>
+      sql`CREATE INDEX IF NOT EXISTS op_reminders_active_idx ON op_reminders (active) WHERE active = true`
   );
 
   // ===== 版数の記録（次回からは冒頭の1クエリで抜ける）=====

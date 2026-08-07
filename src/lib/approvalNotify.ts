@@ -14,11 +14,15 @@ const PORTAL_ORIGIN = (process.env.PORTAL_ORIGIN ?? "https://portal.paloma-pf.co
 const APP_KEY = "operation";
 const TIMEOUT_MS = 8000;
 
-/** 承認画面のURL（本番URLが分かるときだけ付ける。ローカルは外から開けないので付けない）。 */
-function approvalsUrl(): string | undefined {
+/** アプリ内のURL（本番URLが分かるときだけ付ける。ローカルは外から開けないので付けない）。 */
+function appUrl(path: string): string | undefined {
   const base = process.env.NEXTAUTH_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
   if (!base.startsWith("https://")) return undefined;
-  return `${base.replace(/\/$/, "")}/approvals`;
+  return `${base.replace(/\/$/, "")}${path}`;
+}
+
+function approvalsUrl(): string | undefined {
+  return appUrl("/approvals");
 }
 
 /**
@@ -42,8 +46,16 @@ export function notifyApprovalDecided(
   send(loginIds, approved ? "翌日回しが許可されました" : "翌日回しが差し戻されました", summary);
 }
 
+/**
+ * 入力を促す定期通知（工場・ラインごとの設定時刻に送る）。
+ * リンク先は承認画面ではなく入力画面にする。
+ */
+export function notifyInputReminder(loginIds: string[], summary: string): void {
+  send(loginIds, "進捗・残業の入力のお願い", summary, appUrl("/report"));
+}
+
 /** ポータルの通知APIへ投げる（重複を除き、失敗しても例外にしない）。 */
-function send(loginIds: string[], title: string, summary: string): void {
+function send(loginIds: string[], title: string, summary: string, url?: string): void {
   const key = (process.env.PF_PROVISION_KEY ?? "").trim();
   const to = [...new Set(loginIds.filter(Boolean))];
   if (!key || to.length === 0) return;
@@ -59,7 +71,7 @@ function send(loginIds: string[], title: string, summary: string): void {
       app: APP_KEY,
       title,
       message: summary,
-      url: approvalsUrl(),
+      url: url ?? approvalsUrl(),
     }),
     signal: controller.signal,
     cache: "no-store",

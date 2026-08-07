@@ -14,6 +14,7 @@ import type {
   ProgressStatus,
   ReasonCode,
   Report,
+  Reminder,
   ReportKind,
   SummaryRow,
 } from "./types";
@@ -666,6 +667,144 @@ export async function deleteReport(id: string): Promise<void> {
   await ensureSchema();
   const sql = getSql();
   await sql`DELETE FROM op_reports WHERE id = ${id}`;
+}
+
+// ===== 入力を促す定期通知 =====
+
+function mapReminder(r: any): Reminder {
+  return {
+    id: r.id as string,
+    factoryId: r.factory_id as string,
+    factoryName: r.factory_name as string,
+    lineId: (r.line_id as string | null) ?? null,
+    lineName: (r.line_name as string | null) ?? null,
+    remindTime: formatTime(r.remind_time as string),
+    weekdays: ((r.weekdays as number[] | null) ?? []).map((d) => num(d)),
+    recipients: ((r.recipients as string[] | null) ?? []).map(String),
+    message: (r.message as string | null) ?? null,
+    skipIfReported: r.skip_if_reported !== false,
+    active: r.active !== false,
+    lastSentDate: r.last_sent_date ? dateStr(r.last_sent_date) : null,
+  };
+}
+
+const REMINDER_SELECT = `
+  SELECT rm.id, rm.factory_id, f.name AS factory_name, rm.line_id, l.name AS line_name,
+         rm.remind_time, rm.weekdays, rm.recipients, rm.message,
+         rm.skip_if_reported, rm.active, rm.last_sent_date,
+         f.sort_order AS factory_sort, l.sort_order AS line_sort
+  FROM op_reminders rm
+  JOIN op_factories f ON f.id = rm.factory_id
+  LEFT JOIN op_lines l ON l.id = rm.line_id`;
+
+export async function listReminders(): Promise<Reminder[]> {
+  await ensureSchema();
+  const sql = getSql();
+  const rows = await sql.query(
+    `${REMINDER_SELECT} ORDER BY f.sort_order, f.name, rm.remind_time, l.sort_order NULLS FIRST`,
+    []
+  );
+  return (rows as any[]).map(mapReminder);
+}
+
+export interface ReminderInput {
+  factoryId: string;
+  lineId: string | null;
+  remindTime: string;
+  weekdays: number[];
+  recipients: string[];
+  message: string | null;
+  skipIfReported: boolean;
+  active: boolean;
+}
+
+export async function createReminder(input: ReminderInput): Promise<void> {
+  await ensureSchema();
+  const sql = getSql();
+  await sql`
+    INSERT INTO op_reminders
+      (factory_id, line_id, remind_time, weekdays, recipients, message, skip_if_reported, active)
+    VALUES
+      (${input.factoryId}, ${input.lineId}, ${input.remindTime}, ${input.weekdays}::smallint[],
+       ${input.recipients}::text[], ${input.message}, ${input.skipIfReported}, ${input.active})`;
+}
+
+export async function updateReminder(id: string, input: ReminderInput): Promise<void> {
+  await ensureSchema();
+  const sql = getSql();
+  // 内容を変えたら、その日にもう一度送れるよう送信済みの記録は消す
+  await sql`
+    UPDATE op_reminders
+    SET factory_id = ${input.factoryId}, line_id = ${input.lineId},
+        remind_time = ${input.remindTime}, weekdays = ${input.weekdays}::smallint[],
+        recipients = ${input.recipients}::text[], message = ${input.message},
+        skip_if_reported = ${input.skipIfReported}, active = ${input.active},
+        last_sent_date = NULL, updated_at = now()
+    WHERE id = ${id}`;
+}
+
+export async function deleteReminder(id: string): Promise<void> {
+  await ensureSchema();
+  const sql = getSql();
+  await sql`DELETE FROM op_reminders WHERE id = ${id}`;
+}
+
+/**
+ * いま送るべき通知を引く。
+ * 「予定時刻を過ぎていて、まだ今日送っていないもの」を対象にする。
+ * windowMinutes より古い予定は送らない（昼に止まっていた分を夜に送らないため）。
+ */
+export async function listDueReminders(args: {
+  today: string;
+  weekday: number;
+  nowTime: string;
+  windowMinutes: number;
+}): Promise<Reminder[]> {
+  await ensureSchema();
+  const sql = getSql();
+  const rows = await sql.query(
+    `${REMINDER_SELECT}
+     WHERE rm.active = true
+       AND $2 = ANY(rm.weekdays)
+       AND rm.remind_time <= $3::time
+       AND rm.remind_time > ($3::time - ($4 || ' minutes')::interval)
+       AND (rm.last_sent_date IS NULL OR rm.last_sent_date <> $1::date)
+     ORDER BY f.sort_order, rm.remind_time`,
+    [args.today, args.weekday, args.nowTime, String(args.windowMinutes)]
+  );
+  return (rows as any[]).map(mapReminder);
+}
+
+/** 送信済みとして記録する（同じ日の二重送信を防ぐ）。 */
+export async function markReminderSent(id: string, date: string): Promise<void> {
+  const sql = getSql();
+  await sql`UPDATE op_reminders SET last_sent_date = ${date}::date WHERE id = ${id}`;
+}
+
+/**
+ * その日にまだ報告が無いラインを返す（通知の要否判定に使う）。
+ * lineId を指定すればそのラインだけ、無ければ工場の稼働中ライン全部を見る。
+ */
+export async function listUnreportedLines(
+  factoryId: string,
+  lineId: string | null,
+  date: string
+): Promise<string[]> {
+  await ensureSchema();
+  const sql = getSql();
+  const rows = await sql.query(
+    `SELECT l.name
+     FROM op_lines l
+     WHERE l.factory_id = $1
+       AND l.active = true
+       AND ($2::uuid IS NULL OR l.id = $2)
+       AND NOT EXISTS (
+         SELECT 1 FROM op_reports r WHERE r.line_id = l.id AND r.report_date = $3::date
+       )
+     ORDER BY l.sort_order, l.name`,
+    [factoryId, lineId, date]
+  );
+  return (rows as any[]).map((r) => String(r.name));
 }
 
 // ===== 集計 =====
