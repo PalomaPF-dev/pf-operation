@@ -1,24 +1,34 @@
 import Link from "next/link";
-import { Bell, Building2, Factory as FactoryIcon, Info, SlidersHorizontal } from "lucide-react";
-import { masterEditDepartments, requireAdminSession } from "@/lib/session";
-import { listFactories, listLines, listReminders } from "@/lib/db";
 import {
+  Bell,
+  Building2,
+  CalendarDays,
+  Factory as FactoryIcon,
+  Info,
+  SlidersHorizontal,
+} from "lucide-react";
+import { masterEditDepartments, requireAdminSession } from "@/lib/session";
+import { listCalendarDays, listFactories, listLines, listReminders } from "@/lib/db";
+import {
+  deleteCalendarDayAction,
   deleteFactoryAction,
   deleteLineAction,
-  deleteReminderAction,
   importMasterAction,
+  saveCalendarDayAction,
   saveCapacitiesAction,
   saveFactoryAction,
   saveLineAction,
-  saveReminderAction,
+  saveRemindersAction,
 } from "@/lib/actions";
 import { formatBreaks } from "@/lib/capacity";
+import { addDays, formatDate, todayString } from "@/lib/format";
 import {
   LINE_TYPE_LABEL,
   QTY_LABEL,
   WEEKDAY_LABEL,
   capacityPerManHour,
   formatWeekdays,
+  type CalendarDay,
   type Factory,
   type Line,
   type Reminder,
@@ -34,6 +44,7 @@ const TABS = [
   { key: "lines", label: "ライン設定", icon: SlidersHorizontal },
   { key: "factories", label: "工場", icon: Building2 },
   { key: "reminders", label: "定期通知", icon: Bell },
+  { key: "calendar", label: "稼働日", icon: CalendarDays },
 ] as const;
 
 type TabKey = (typeof TABS)[number]["key"];
@@ -63,12 +74,15 @@ export default async function MastersPage({
   // 編集可否はページでもサーバーアクションでも判定する（画面はボタンを出さないだけ）
   const canEdit = session.canEditMaster;
 
-  let factories, lines, reminders;
+  // 稼働日は「先月ぶんから先」を見せる（過ぎた休みを延々と並べない）
+  const today = todayString();
+  let factories, lines, reminders, calendarDays;
   try {
-    [factories, lines, reminders] = await Promise.all([
+    [factories, lines, reminders, calendarDays] = await Promise.all([
       listFactories(),
       listLines(),
       listReminders(),
+      listCalendarDays(addDays(today, -30)),
     ]);
   } catch (e) {
     console.error("[masters]", e);
@@ -126,6 +140,14 @@ export default async function MastersPage({
           lines={lines}
           reminders={reminders}
           canEdit={canEdit}
+        />
+      ) : null}
+      {tab === "calendar" ? (
+        <CalendarTab
+          factories={factories}
+          days={calendarDays}
+          canEdit={canEdit}
+          today={today}
         />
       ) : null}
     </div>
@@ -665,122 +687,217 @@ function FactoriesTab({ factories, canEdit }: { factories: Factory[]; canEdit: b
   );
 }
 
-/* ===== 定期通知（入力を促す LINE WORKS 通知） ===== */
+/* ===== 定期通知（入力を促す LINE WORKS 通知） =====
+   工場・ラインマスターと同じ「工場ごとの表」。1行＝1つの対象（工場全体／各ライン）で、
+   通知時刻は1つの欄にまとめて入力する（例：9:00, 13:00, 16:00）。 */
 
-function ReminderFields({
-  factories,
-  lines,
+function WeekdayBoxes({
+  name,
+  weekdays,
+  disabled,
+}: {
+  name: string;
+  weekdays: number[];
+  disabled: boolean;
+}) {
+  return (
+    <span className="flex items-center gap-1">
+      {WEEKDAY_LABEL.map((label, d) => (
+        <label key={d} className="flex flex-col items-center text-[10px] text-slate-500">
+          {label}
+          <input
+            type="checkbox"
+            name={`${name}_${d}`}
+            defaultChecked={weekdays.includes(d)}
+            disabled={disabled}
+            className="h-4 w-4 rounded border-slate-300 text-brand-700 focus:ring-brand-600"
+          />
+        </label>
+      ))}
+    </span>
+  );
+}
+
+function ReminderRow({
+  factoryId,
+  lineId,
+  label,
+  sub,
   reminder,
   canEdit,
 }: {
-  factories: Factory[];
-  lines: Line[];
+  factoryId: string;
+  lineId: string | null;
+  label: string;
+  sub?: string | null;
   reminder?: Reminder;
   canEdit: boolean;
 }) {
-  const disabled = !canEdit;
+  const key = lineId ?? factoryId;
+  const times = reminder?.remindTimes ?? [];
   const weekdays = reminder?.weekdays ?? [1, 2, 3, 4, 5];
   return (
-    <>
-      <Field label="工場">
-        <select
-          name="factoryId"
-          defaultValue={reminder?.factoryId ?? factories[0]?.id ?? ""}
-          required
-          disabled={disabled}
-          className={`${inputCls} w-36`}
-        >
-          {factories.map((f) => (
-            <option key={f.id} value={f.id}>
-              {f.name}
-            </option>
-          ))}
-        </select>
-      </Field>
-      <Field label="ライン（未選択なら工場全体）">
-        <select
-          name="lineId"
-          defaultValue={reminder?.lineId ?? ""}
-          disabled={disabled}
-          className={`${inputCls} w-52`}
-        >
-          <option value="">工場全体</option>
+    <tr className={times.length === 0 ? "text-slate-500" : ""}>
+      <td className={`${TD} font-bold text-slate-900`}>
+        {canEdit ? <input type="hidden" name="target" value={`${factoryId}|${lineId ?? ""}`} /> : null}
+        {label}
+        {sub ? <span className="ml-1 text-[11px] font-normal text-slate-400">{sub}</span> : null}
+      </td>
+      <td className={TD}>
+        {canEdit ? (
+          <input
+            type="text"
+            name={`times_${key}`}
+            defaultValue={times.join(", ")}
+            placeholder="9:00, 13:00, 16:00"
+            className={`${inputCls} w-full min-w-[10rem] tabular-nums`}
+          />
+        ) : times.length > 0 ? (
+          <span className="tabular-nums text-slate-800">{times.join("・")}</span>
+        ) : (
+          <span className="text-xs text-slate-400">通知しない</span>
+        )}
+      </td>
+      <td className={TD}>
+        {canEdit ? (
+          <WeekdayBoxes name={`weekday_${key}`} weekdays={weekdays} disabled={false} />
+        ) : (
+          <span className="text-xs text-slate-600">
+            {times.length > 0 ? formatWeekdays(weekdays) : "—"}
+          </span>
+        )}
+      </td>
+      <td className={TD}>
+        {canEdit ? (
+          <input
+            type="text"
+            name={`recipients_${key}`}
+            defaultValue={reminder?.recipients.join(", ") ?? ""}
+            placeholder="工場のメンバー全員"
+            className={`${inputCls} w-full min-w-[9rem]`}
+          />
+        ) : (
+          <span className="text-xs text-slate-600">
+            {reminder && reminder.recipients.length > 0
+              ? reminder.recipients.join("・")
+              : times.length > 0
+                ? "工場のメンバー全員"
+                : "—"}
+          </span>
+        )}
+      </td>
+      <td className={TD}>
+        {canEdit ? (
+          <input
+            type="text"
+            name={`message_${key}`}
+            defaultValue={reminder?.message ?? ""}
+            maxLength={200}
+            placeholder="ひとこと（任意）"
+            className={`${inputCls} w-full min-w-[10rem]`}
+          />
+        ) : (
+          <span className="text-xs text-slate-600">{reminder?.message ?? ""}</span>
+        )}
+      </td>
+      <td className={`${TD} text-center`}>
+        {canEdit ? (
+          <input
+            type="checkbox"
+            name={`skipIfReported_${key}`}
+            defaultChecked={reminder?.skipIfReported ?? true}
+            className="h-4 w-4 rounded border-slate-300 text-brand-700 focus:ring-brand-600"
+          />
+        ) : (
+          <span className="text-xs text-slate-600">
+            {times.length === 0 ? "—" : reminder?.skipIfReported ? "する" : "しない"}
+          </span>
+        )}
+      </td>
+      <td className={`${TD} whitespace-nowrap text-[11px] text-slate-400`}>
+        {reminder?.lastSentDate
+          ? `${reminder.lastSentDate}${reminder.lastSentTime ? ` ${reminder.lastSentTime}` : ""}`
+          : "—"}
+      </td>
+    </tr>
+  );
+}
+
+function FactoryReminderTable({
+  factory,
+  lines,
+  reminders,
+  canEdit,
+}: {
+  factory: Factory;
+  lines: Line[];
+  reminders: Reminder[];
+  canEdit: boolean;
+}) {
+  const wide = reminders.find((r) => r.lineId === null);
+  const body = (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[56rem] border-collapse">
+        <thead className="bg-slate-50">
+          <tr className="border-b border-slate-200">
+            <th className={`${TH} w-28`}>対象</th>
+            <th className={`${TH} w-56`}>通知時刻（複数可）</th>
+            <th className={`${TH} w-48`}>曜日</th>
+            <th className={`${TH} w-44`}>送り先の社員番号</th>
+            <th className={TH}>ひとこと</th>
+            <th className={`${TH} w-24 text-center`}>報告済は送らない</th>
+            <th className={`${TH} w-32`}>最終送信</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          <ReminderRow
+            factoryId={factory.id}
+            lineId={null}
+            label="工場全体"
+            sub="未報告のラインをまとめて促す"
+            reminder={wide}
+            canEdit={canEdit}
+          />
           {lines.map((l) => (
-            <option key={l.id} value={l.id}>
-              {l.factoryName} / {l.name}
-              {l.product ? `（${l.product}）` : ""}
-            </option>
+            <ReminderRow
+              key={l.id}
+              factoryId={factory.id}
+              lineId={l.id}
+              label={l.name}
+              sub={l.product}
+              reminder={reminders.find((r) => r.lineId === l.id)}
+              canEdit={canEdit}
+            />
           ))}
-        </select>
-      </Field>
-      <Field label="通知時刻">
-        <input
-          type="time"
-          name="remindTime"
-          defaultValue={reminder?.remindTime ?? "10:00"}
-          required
-          disabled={disabled}
-          className={`${inputCls} w-28`}
-        />
-      </Field>
-      <Field label="曜日">
-        <span className="flex flex-wrap items-center gap-1.5 pt-1">
-          {WEEKDAY_LABEL.map((label, d) => (
-            <label key={d} className="flex items-center gap-1 text-xs text-slate-700">
-              <input
-                type="checkbox"
-                name={`weekday_${d}`}
-                defaultChecked={weekdays.includes(d)}
-                disabled={disabled}
-                className="h-4 w-4 rounded border-slate-300 text-brand-700 focus:ring-brand-600"
-              />
-              {label}
-            </label>
-          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  return (
+    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+      <h2 className="flex items-baseline gap-2 border-b border-slate-200 bg-brand-50 px-4 py-3">
+        {factory.code ? (
+          <span className="rounded bg-brand-200 px-1.5 py-0.5 font-mono text-xs font-bold text-brand-900">
+            {factory.code}
+          </span>
+        ) : null}
+        <span className="text-sm font-bold text-slate-900">{factory.name}</span>
+        <span className="text-xs text-slate-500">
+          通知{reminders.filter((r) => r.remindTimes.length > 0).length}件
         </span>
-      </Field>
-      <Field label="送り先の社員番号（空なら工場のメンバー全員）">
-        <input
-          type="text"
-          name="recipients"
-          defaultValue={reminder?.recipients.join(", ") ?? ""}
-          placeholder="12345, 12346"
-          disabled={disabled}
-          className={`${inputCls} w-56`}
-        />
-      </Field>
-      <Field label="ひとこと（任意）">
-        <input
-          type="text"
-          name="message"
-          defaultValue={reminder?.message ?? ""}
-          maxLength={200}
-          placeholder="例）15時までに入力をお願いします"
-          disabled={disabled}
-          className={`${inputCls} w-64`}
-        />
-      </Field>
-      <label className="flex items-center gap-1.5 pb-2 text-xs text-slate-600">
-        <input
-          type="checkbox"
-          name="skipIfReported"
-          defaultChecked={reminder?.skipIfReported ?? true}
-          disabled={disabled}
-          className="h-4 w-4 rounded border-slate-300 text-brand-700 focus:ring-brand-600"
-        />
-        報告済みなら送らない
-      </label>
-      <label className="flex items-center gap-1.5 pb-2 text-xs text-slate-600">
-        <input
-          type="checkbox"
-          name="active"
-          defaultChecked={reminder?.active ?? true}
-          disabled={disabled}
-          className="h-4 w-4 rounded border-slate-300 text-brand-700 focus:ring-brand-600"
-        />
-        有効
-      </label>
-    </>
+      </h2>
+      {canEdit ? (
+        <form action={saveRemindersAction}>
+          {body}
+          <div className="border-t border-slate-100 px-4 py-3">
+            <SubmitButton>{factory.name}を保存</SubmitButton>
+          </div>
+        </form>
+      ) : (
+        body
+      )}
+    </section>
   );
 }
 
@@ -807,115 +924,161 @@ function RemindersTab({
     );
   }
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <p className="text-xs text-slate-600">
         決めた時刻に「進捗・残業の入力をお願いします」を
         <strong className="font-medium">LINE WORKS</strong>へ送ります。
-        工場ごと・ラインごとに時刻と送り先を設定できます。
+        時刻は「9:00, 13:00, 16:00」のようにまとめて入力できます（空にすればその行は送りません）。
         送り先を空にすると、その工場に所属する管理者全員に届きます。
+      </p>
+
+      {factories.map((f) => (
+        <FactoryReminderTable
+          key={f.id}
+          factory={f}
+          lines={lines.filter((l) => l.factoryId === f.id && l.active)}
+          reminders={reminders.filter((r) => r.factoryId === f.id)}
+          canEdit={canEdit}
+        />
+      ))}
+
+      <p className="text-xs text-slate-500">
+        通知は15分ごとの定期処理で送ります（設定時刻から最大15分ほど遅れることがあります）。
+        <Link href="/masters?tab=calendar" className="mx-1 text-brand-700 underline">
+          稼働日
+        </Link>
+        で休業日にした日は送りません。LINE WORKS が未設定の方には届きません。
+      </p>
+    </div>
+  );
+}
+
+/* ===== 稼働日（休業日・臨時稼働日） ===== */
+
+function CalendarTab({
+  factories,
+  days,
+  canEdit,
+  today,
+}: {
+  factories: Factory[];
+  days: CalendarDay[];
+  canEdit: boolean;
+  today: string;
+}) {
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-slate-600">
+        曜日の設定だけでは拾えない休み（祝日・お盆・年末年始）と、休日出勤（臨時稼働）を登録します。
+        休業日にした日は
+        <Link href="/masters?tab=reminders" className="mx-1 text-brand-700 underline">
+          定期通知
+        </Link>
+        を送りません。臨時稼働にした日は、曜日の設定に入っていなくても送ります。
+        工場を選ばなければ全工場共通（会社休日）になり、同じ日に工場の設定があればそちらが優先されます。
       </p>
 
       {canEdit ? (
         <section className="rounded-xl border border-slate-200 bg-white p-4">
-          <h2 className="mb-3 text-sm font-semibold text-slate-900">通知を追加</h2>
-          <form action={saveReminderAction} className="flex flex-wrap items-end gap-3">
-            <ReminderFields factories={factories} lines={lines} canEdit />
+          <h2 className="mb-3 text-sm font-semibold text-slate-900">休業日・臨時稼働日を追加</h2>
+          <form action={saveCalendarDayAction} className="flex flex-wrap items-end gap-3">
+            <Field label="日付">
+              <input
+                type="date"
+                name="date"
+                required
+                defaultValue={today}
+                className={`${inputCls} w-44`}
+              />
+            </Field>
+            <Field label="工場（未選択なら全工場共通）">
+              <select name="factoryId" defaultValue="" className={`${inputCls} w-44`}>
+                <option value="">全工場共通</option>
+                {factories.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="区分">
+              <select name="kind" defaultValue="holiday" className={`${inputCls} w-32`}>
+                <option value="holiday">休業日</option>
+                <option value="working">臨時稼働</option>
+              </select>
+            </Field>
+            <Field label="メモ（任意）">
+              <input
+                type="text"
+                name="note"
+                maxLength={100}
+                placeholder="例）お盆休み"
+                className={`${inputCls} w-56`}
+              />
+            </Field>
             <SubmitButton>追加</SubmitButton>
           </form>
+          <p className="mt-2 text-xs text-slate-500">
+            同じ工場・同じ日をもう一度追加すると、あとから入れた内容で上書きされます。
+          </p>
         </section>
       ) : null}
 
-      {reminders.length === 0 ? (
-        <p className="text-sm text-slate-500">定期通知はまだ設定されていません。</p>
+      {days.length === 0 ? (
+        <p className="text-sm text-slate-500">稼働日の設定はまだありません（曜日の設定どおりに送ります）。</p>
       ) : (
-        <div className="space-y-5">
-          {factories
-            .map((f) => ({ factory: f, rows: reminders.filter((r) => r.factoryId === f.id) }))
-            .filter((g) => g.rows.length > 0)
-            .map(({ factory, rows }) => (
-              <section
-                key={factory.id}
-                className="overflow-hidden rounded-2xl border border-slate-200 bg-white"
-              >
-                <h3 className="flex items-baseline gap-2 border-b border-slate-200 bg-brand-50 px-4 py-2.5">
-                  {factory.code ? (
-                    <span className="rounded bg-brand-200 px-1.5 py-0.5 font-mono text-xs font-bold text-brand-900">
-                      {factory.code}
-                    </span>
-                  ) : null}
-                  <span className="text-sm font-bold text-slate-900">{factory.name}</span>
-                  <span className="text-xs text-slate-500">{rows.length}件</span>
-                </h3>
-                <ul className="divide-y divide-slate-100">
-                  {rows.map((r) => (
-                    <li key={r.id} className="p-3">
-                      <div className="flex flex-wrap items-center gap-2 text-sm">
-                        <span className="font-bold tabular-nums text-slate-900">{r.remindTime}</span>
-                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">
-                          {formatWeekdays(r.weekdays)}
+        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[40rem] border-collapse">
+              <thead className="bg-slate-50">
+                <tr className="border-b border-slate-200">
+                  <th className={`${TH} w-32`}>日付</th>
+                  <th className={`${TH} w-40`}>対象</th>
+                  <th className={`${TH} w-28`}>区分</th>
+                  <th className={TH}>メモ</th>
+                  {canEdit ? <th className={`${TH} w-24`} /> : null}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {days.map((d) => (
+                  <tr key={d.id} className={d.date < today ? "text-slate-400" : ""}>
+                    <td className={`${TD} whitespace-nowrap font-bold text-slate-900`}>
+                      {formatDate(d.date)}
+                    </td>
+                    <td className={TD}>{d.factoryName ?? "全工場共通"}</td>
+                    <td className={TD}>
+                      {d.working ? (
+                        <span className="rounded-full bg-brand-100 px-2 py-0.5 text-[11px] font-medium text-brand-800">
+                          臨時稼働
                         </span>
-                        <span className="text-slate-700">{r.lineName ?? "工場全体"}</span>
-                        <span className="text-xs text-slate-500">
-                          宛先：
-                          {r.recipients.length > 0
-                            ? r.recipients.join("・")
-                            : `${factory.name}のメンバー全員`}
+                      ) : (
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                          休業日
                         </span>
-                        {!r.active ? (
-                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500">
-                            停止中
-                          </span>
-                        ) : null}
-                        {!r.skipIfReported ? (
-                          <span className="text-[11px] text-amber-700">報告済みでも送る</span>
-                        ) : null}
-                        <span className="ml-auto text-[11px] text-slate-400">
-                          {r.lastSentDate ? `最終送信 ${r.lastSentDate}` : "未送信"}
-                        </span>
-                      </div>
-                      {r.message ? (
-                        <p className="mt-1 text-xs text-slate-600">{r.message}</p>
-                      ) : null}
-
-                      {canEdit ? (
-                        <>
-                          <form
-                            action={saveReminderAction}
-                            className="mt-2 flex flex-wrap items-end gap-3 border-t border-slate-100 pt-2"
+                      )}
+                    </td>
+                    <td className={`${TD} text-xs text-slate-600`}>{d.note ?? ""}</td>
+                    {canEdit ? (
+                      <td className={TD}>
+                        <form action={deleteCalendarDayAction}>
+                          <input type="hidden" name="id" value={d.id} />
+                          <SubmitButton
+                            pendingLabel="削除中…"
+                            confirm={`${formatDate(d.date)}（${d.factoryName ?? "全工場共通"}）の設定を削除します。よろしいですか？`}
+                            className={deleteCls}
                           >
-                            <input type="hidden" name="id" value={r.id} />
-                            <ReminderFields
-                              factories={factories}
-                              lines={lines}
-                              reminder={r}
-                              canEdit={canEdit}
-                            />
-                            <SubmitButton>更新</SubmitButton>
-                          </form>
-                          <form action={deleteReminderAction} className="mt-2">
-                            <input type="hidden" name="id" value={r.id} />
-                            <SubmitButton
-                              pendingLabel="削除中…"
-                              confirm={`${r.remindTime} の通知を削除します。よろしいですか？`}
-                              className={deleteCls}
-                            >
-                              削除
-                            </SubmitButton>
-                          </form>
-                        </>
-                      ) : null}
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ))}
-        </div>
+                            削除
+                          </SubmitButton>
+                        </form>
+                      </td>
+                    ) : null}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
       )}
-
-      <p className="text-xs text-slate-500">
-        通知は15分ごとの定期処理で送ります（設定時刻から最大15分ほど遅れることがあります）。
-        LINE WORKS が未設定の方には届きません。ポータルの利用者設定をご確認ください。
-      </p>
     </div>
   );
 }

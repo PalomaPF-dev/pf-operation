@@ -6,6 +6,7 @@ import FACTORY_LINES from "@/data/factoryLines.json";
 import type {
   ApprovalStatus,
   BreakSpan,
+  CalendarDay,
   DailyPlan,
   Factory,
   Line,
@@ -678,20 +679,21 @@ function mapReminder(r: any): Reminder {
     factoryName: r.factory_name as string,
     lineId: (r.line_id as string | null) ?? null,
     lineName: (r.line_name as string | null) ?? null,
-    remindTime: formatTime(r.remind_time as string),
+    remindTimes: ((r.remind_times as string[] | null) ?? []).map((t) => formatTime(String(t))),
     weekdays: ((r.weekdays as number[] | null) ?? []).map((d) => num(d)),
     recipients: ((r.recipients as string[] | null) ?? []).map(String),
     message: (r.message as string | null) ?? null,
     skipIfReported: r.skip_if_reported !== false,
     active: r.active !== false,
     lastSentDate: r.last_sent_date ? dateStr(r.last_sent_date) : null,
+    lastSentTime: r.last_sent_time ? formatTime(String(r.last_sent_time)) : null,
   };
 }
 
 const REMINDER_SELECT = `
   SELECT rm.id, rm.factory_id, f.name AS factory_name, rm.line_id, l.name AS line_name,
-         rm.remind_time, rm.weekdays, rm.recipients, rm.message,
-         rm.skip_if_reported, rm.active, rm.last_sent_date,
+         rm.remind_times, rm.weekdays, rm.recipients, rm.message,
+         rm.skip_if_reported, rm.active, rm.last_sent_date, rm.last_sent_time,
          f.sort_order AS factory_sort, l.sort_order AS line_sort
   FROM op_reminders rm
   JOIN op_factories f ON f.id = rm.factory_id
@@ -701,7 +703,7 @@ export async function listReminders(): Promise<Reminder[]> {
   await ensureSchema();
   const sql = getSql();
   const rows = await sql.query(
-    `${REMINDER_SELECT} ORDER BY f.sort_order, f.name, rm.remind_time, l.sort_order NULLS FIRST`,
+    `${REMINDER_SELECT} ORDER BY f.sort_order, f.name, l.sort_order NULLS FIRST, l.name`,
     []
   );
   return (rows as any[]).map(mapReminder);
@@ -710,7 +712,8 @@ export async function listReminders(): Promise<Reminder[]> {
 export interface ReminderInput {
   factoryId: string;
   lineId: string | null;
-  remindTime: string;
+  /** 通知時刻（"HH:MM" の配列）。空にすると通知しない */
+  remindTimes: string[];
   weekdays: number[];
   recipients: string[];
   message: string | null;
@@ -718,67 +721,119 @@ export interface ReminderInput {
   active: boolean;
 }
 
-export async function createReminder(input: ReminderInput): Promise<void> {
+/**
+ * 対象（工場全体／工場×ライン）ごとに1件の設定を作り直す。
+ * 内容を変えたら、その日にもう一度送れるよう送信済みの記録は消す。
+ */
+export async function upsertReminder(input: ReminderInput): Promise<void> {
   await ensureSchema();
   const sql = getSql();
+  const times = input.remindTimes;
+  if (input.lineId) {
+    await sql`
+      INSERT INTO op_reminders
+        (factory_id, line_id, remind_times, weekdays, recipients, message, skip_if_reported, active)
+      VALUES
+        (${input.factoryId}, ${input.lineId}, ${times}::time[], ${input.weekdays}::smallint[],
+         ${input.recipients}::text[], ${input.message}, ${input.skipIfReported}, ${input.active})
+      ON CONFLICT (factory_id, line_id) WHERE line_id IS NOT NULL DO UPDATE SET
+        remind_times = EXCLUDED.remind_times, weekdays = EXCLUDED.weekdays,
+        recipients = EXCLUDED.recipients, message = EXCLUDED.message,
+        skip_if_reported = EXCLUDED.skip_if_reported, active = EXCLUDED.active,
+        last_sent_date = NULL, last_sent_time = NULL, updated_at = now()`;
+    return;
+  }
   await sql`
     INSERT INTO op_reminders
-      (factory_id, line_id, remind_time, weekdays, recipients, message, skip_if_reported, active)
+      (factory_id, line_id, remind_times, weekdays, recipients, message, skip_if_reported, active)
     VALUES
-      (${input.factoryId}, ${input.lineId}, ${input.remindTime}, ${input.weekdays}::smallint[],
-       ${input.recipients}::text[], ${input.message}, ${input.skipIfReported}, ${input.active})`;
+      (${input.factoryId}, NULL, ${times}::time[], ${input.weekdays}::smallint[],
+       ${input.recipients}::text[], ${input.message}, ${input.skipIfReported}, ${input.active})
+    ON CONFLICT (factory_id) WHERE line_id IS NULL DO UPDATE SET
+      remind_times = EXCLUDED.remind_times, weekdays = EXCLUDED.weekdays,
+      recipients = EXCLUDED.recipients, message = EXCLUDED.message,
+      skip_if_reported = EXCLUDED.skip_if_reported, active = EXCLUDED.active,
+      last_sent_date = NULL, last_sent_time = NULL, updated_at = now()`;
 }
 
-export async function updateReminder(id: string, input: ReminderInput): Promise<void> {
+/** 対象の設定を消す（通知時刻を空にしたとき）。 */
+export async function deleteReminderTarget(
+  factoryId: string,
+  lineId: string | null
+): Promise<void> {
   await ensureSchema();
   const sql = getSql();
-  // 内容を変えたら、その日にもう一度送れるよう送信済みの記録は消す
-  await sql`
-    UPDATE op_reminders
-    SET factory_id = ${input.factoryId}, line_id = ${input.lineId},
-        remind_time = ${input.remindTime}, weekdays = ${input.weekdays}::smallint[],
-        recipients = ${input.recipients}::text[], message = ${input.message},
-        skip_if_reported = ${input.skipIfReported}, active = ${input.active},
-        last_sent_date = NULL, updated_at = now()
-    WHERE id = ${id}`;
+  if (lineId) {
+    await sql`DELETE FROM op_reminders WHERE factory_id = ${factoryId} AND line_id = ${lineId}`;
+    return;
+  }
+  await sql`DELETE FROM op_reminders WHERE factory_id = ${factoryId} AND line_id IS NULL`;
 }
 
-export async function deleteReminder(id: string): Promise<void> {
-  await ensureSchema();
-  const sql = getSql();
-  await sql`DELETE FROM op_reminders WHERE id = ${id}`;
-}
+/** いま送るべき1件（設定＋その回の予定時刻）。 */
+export type DueReminder = Reminder & { dueTime: string };
 
 /**
  * いま送るべき通知を引く。
- * 「予定時刻を過ぎていて、まだ今日送っていないもの」を対象にする。
+ * 「予定時刻を過ぎていて、まだ今日その時刻ぶんを送っていないもの」を対象にする。
  * windowMinutes より古い予定は送らない（昼に止まっていた分を夜に送らないため）。
+ * 1件の設定に複数の時刻があっても、1回の実行で送るのは直近の1回だけ。
+ *
+ * forceFactoryIds は稼働日マスタで臨時稼働にした工場。曜日の設定に関係なく対象にする。
  */
 export async function listDueReminders(args: {
   today: string;
   weekday: number;
   nowTime: string;
   windowMinutes: number;
-}): Promise<Reminder[]> {
+  forceAll?: boolean;
+  forceFactoryIds?: string[];
+}): Promise<DueReminder[]> {
   await ensureSchema();
   const sql = getSql();
   const rows = await sql.query(
-    `${REMINDER_SELECT}
+    `SELECT DISTINCT ON (rm.id) rm.id, rm.factory_id, f.name AS factory_name,
+            rm.line_id, l.name AS line_name,
+            rm.remind_times, rm.weekdays, rm.recipients, rm.message,
+            rm.skip_if_reported, rm.active, rm.last_sent_date, rm.last_sent_time,
+            t.at AS due_time
+     FROM op_reminders rm
+     JOIN op_factories f ON f.id = rm.factory_id
+     LEFT JOIN op_lines l ON l.id = rm.line_id
+     CROSS JOIN LATERAL unnest(rm.remind_times) AS t(at)
      WHERE rm.active = true
-       AND $2 = ANY(rm.weekdays)
-       AND rm.remind_time <= $3::time
-       AND rm.remind_time > ($3::time - ($4 || ' minutes')::interval)
-       AND (rm.last_sent_date IS NULL OR rm.last_sent_date <> $1::date)
-     ORDER BY f.sort_order, rm.remind_time`,
-    [args.today, args.weekday, args.nowTime, String(args.windowMinutes)]
+       AND ($2 = ANY(rm.weekdays) OR $5::boolean OR rm.factory_id = ANY($6::uuid[]))
+       AND t.at <= $3::time
+       AND t.at > ($3::time - ($4 || ' minutes')::interval)
+       AND (rm.last_sent_date IS NULL OR rm.last_sent_date <> $1::date
+            OR rm.last_sent_time IS NULL OR rm.last_sent_time < t.at)
+     ORDER BY rm.id, t.at DESC`,
+    [
+      args.today,
+      args.weekday,
+      args.nowTime,
+      String(args.windowMinutes),
+      args.forceAll === true,
+      args.forceFactoryIds ?? [],
+    ]
   );
-  return (rows as any[]).map(mapReminder);
+  return (rows as any[]).map((r) => ({
+    ...mapReminder(r),
+    dueTime: formatTime(String(r.due_time)),
+  }));
 }
 
-/** 送信済みとして記録する（同じ日の二重送信を防ぐ）。 */
-export async function markReminderSent(id: string, date: string): Promise<void> {
+/** 送信済みとして記録する（同じ時刻の二重送信を防ぐ）。 */
+export async function markReminderSent(
+  id: string,
+  date: string,
+  time: string
+): Promise<void> {
   const sql = getSql();
-  await sql`UPDATE op_reminders SET last_sent_date = ${date}::date WHERE id = ${id}`;
+  await sql`
+    UPDATE op_reminders
+    SET last_sent_date = ${date}::date, last_sent_time = ${time}::time
+    WHERE id = ${id}`;
 }
 
 /**
@@ -805,6 +860,86 @@ export async function listUnreportedLines(
     [factoryId, lineId, date]
   );
   return (rows as any[]).map((r) => String(r.name));
+}
+
+// ===== 稼働日マスタ =====
+
+function mapCalendarDay(r: any): CalendarDay {
+  return {
+    id: r.id as string,
+    factoryId: (r.factory_id as string | null) ?? null,
+    factoryName: (r.factory_name as string | null) ?? null,
+    date: dateStr(r.the_date),
+    working: r.working === true,
+    note: (r.note as string | null) ?? null,
+  };
+}
+
+/** 登録済みの休業日・臨時稼働日を引く（from 以降。既定は全件）。 */
+export async function listCalendarDays(from?: string): Promise<CalendarDay[]> {
+  await ensureSchema();
+  const sql = getSql();
+  const rows = await sql`
+    SELECT c.id, c.factory_id, f.name AS factory_name, c.the_date, c.working, c.note
+    FROM op_calendar c
+    LEFT JOIN op_factories f ON f.id = c.factory_id
+    WHERE ${from ?? null}::date IS NULL OR c.the_date >= ${from ?? null}::date
+    ORDER BY c.the_date, f.sort_order NULLS FIRST, f.name`;
+  return (rows as any[]).map(mapCalendarDay);
+}
+
+export interface CalendarDayInput {
+  /** null なら全工場共通 */
+  factoryId: string | null;
+  date: string;
+  working: boolean;
+  note: string | null;
+}
+
+/** 同じ工場・同じ日は1件だけ持つ（登録済みなら上書き）。 */
+export async function upsertCalendarDay(input: CalendarDayInput): Promise<void> {
+  await ensureSchema();
+  const sql = getSql();
+  if (input.factoryId) {
+    await sql`
+      INSERT INTO op_calendar (factory_id, the_date, working, note)
+      VALUES (${input.factoryId}, ${input.date}::date, ${input.working}, ${input.note})
+      ON CONFLICT (factory_id, the_date) WHERE factory_id IS NOT NULL DO UPDATE SET
+        working = EXCLUDED.working, note = EXCLUDED.note`;
+    return;
+  }
+  await sql`
+    INSERT INTO op_calendar (factory_id, the_date, working, note)
+    VALUES (NULL, ${input.date}::date, ${input.working}, ${input.note})
+    ON CONFLICT (the_date) WHERE factory_id IS NULL DO UPDATE SET
+      working = EXCLUDED.working, note = EXCLUDED.note`;
+}
+
+export async function deleteCalendarDay(id: string): Promise<void> {
+  await ensureSchema();
+  const sql = getSql();
+  await sql`DELETE FROM op_calendar WHERE id = ${id}`;
+}
+
+/**
+ * その日の稼働／休業の指定を引く（定期通知の判定に使う）。
+ * 指定が無い日は null＝曜日の設定どおりに動かす。工場の行があれば全工場共通より優先する。
+ */
+export async function getCalendarOverrides(date: string): Promise<{
+  common: boolean | null;
+  byFactory: Record<string, boolean>;
+}> {
+  await ensureSchema();
+  const sql = getSql();
+  const rows = await sql`
+    SELECT factory_id, working FROM op_calendar WHERE the_date = ${date}::date`;
+  let common: boolean | null = null;
+  const byFactory: Record<string, boolean> = {};
+  for (const r of rows as any[]) {
+    if (r.factory_id) byFactory[String(r.factory_id)] = r.working === true;
+    else common = r.working === true;
+  }
+  return { common, byFactory };
 }
 
 // ===== 集計 =====
