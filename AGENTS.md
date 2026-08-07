@@ -27,6 +27,9 @@ Notably in this repo: the `middleware` file convention is deprecated and renamed
   実施(do) は承認不要で、生産管理部へ報告として届く（`approval_status` は NULL）。
   権限判定は `approveReportAction` に集約。報告を上書きすると許可は pending に戻る。
   翌日回しの許可画面では `DelayVisual` で遅れの理由（理由区分・理由の本文）を主役に見せる。
+  申請時と結果（許可・差し戻し）は LINE WORKS へ通知する（`src/lib/approvalNotify.ts`）。
+  宛先は生産管理部・申請者に加えて**対象工場のメンバー**（`listFactoryMemberLoginIds`）。
+  通知の失敗で申請・許可を失敗させないこと。
 - 残業の申請内容は「人数 × 一人当たりの分」（`op_reports.overtime_headcount / overtime_minutes`）。
   対象者個人は記録しない（`op_overtime_members` は旧形式で、新規には書かない）。
 - 理論値の計算は `src/lib/capacity.ts` に集約。休憩は実時刻で差し引き、稼働時間(H)で頭打ちにする。

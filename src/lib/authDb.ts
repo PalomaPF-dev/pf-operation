@@ -151,3 +151,27 @@ export async function listMasterEditorLoginIds(departments: string[]): Promise<s
     ORDER BY login_id`) as { login_id: string }[];
   return rows.map((r) => String(r.login_id)).filter(Boolean);
 }
+
+/**
+ * ある工場に所属する管理者の社員番号。許可・差し戻しの通知先に使う。
+ * ポータルでは工場が部署として登録されるため、factory と department の両方を突き合わせる
+ * （入力範囲の判定 getUserScope と同じ考え方）。
+ */
+export async function listFactoryMemberLoginIds(factoryName: string): Promise<string[]> {
+  if (!factoryName) return [];
+  const sql = getSql();
+  const rows = (await sql`
+    SELECT login_id FROM op_users
+    WHERE role = 'admin' AND (factory = ${factoryName} OR department = ${factoryName})
+    ORDER BY login_id`) as { login_id: string }[];
+  return rows.map((r) => String(r.login_id)).filter(Boolean);
+}
+
+/** 社員番号を ID から引く（通知先の組み立て用）。 */
+export async function findLoginIdById(id: string): Promise<string | null> {
+  const sql = getSql();
+  const rows = (await sql`SELECT login_id FROM op_users WHERE id = ${id} LIMIT 1`) as {
+    login_id: string;
+  }[];
+  return rows[0] ? String(rows[0].login_id) : null;
+}
