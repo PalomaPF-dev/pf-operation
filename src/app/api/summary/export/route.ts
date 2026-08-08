@@ -1,5 +1,5 @@
 import { getAdminSession } from "@/lib/session";
-import { summarize } from "@/lib/db";
+import { getUserScope, scopeFactoryIds, summarize } from "@/lib/db";
 import { csvResponse, toCsv } from "@/lib/csv";
 import { monthStartString, todayString } from "@/lib/format";
 import { LINE_TYPE_LABEL, summaryMetrics } from "@/lib/types";
@@ -18,15 +18,17 @@ export async function GET(req: Request) {
     ? url.searchParams.get("from")!
     : monthStartString();
   const to = isDate(url.searchParams.get("to")) ? url.searchParams.get("to")! : todayString();
-  const filter = {
-    dateFrom: from,
-    dateTo: to,
-    factoryId: url.searchParams.get("factory") || null,
-    lineId: url.searchParams.get("line") || null,
-    groupBy: url.searchParams.get("group") === "factory" ? ("factory" as const) : ("line" as const),
-  };
-
   try {
+    // 工場スコープ（工場所属者は管理者でも自工場のみ）。リクエストの factory 指定とは別に必ず効かせる
+    const filter = {
+      dateFrom: from,
+      dateTo: to,
+      factoryId: url.searchParams.get("factory") || null,
+      lineId: url.searchParams.get("line") || null,
+      groupBy:
+        url.searchParams.get("group") === "factory" ? ("factory" as const) : ("line" as const),
+      factoryIds: scopeFactoryIds(await getUserScope(session)),
+    };
     const rows = await summarize(filter);
 
     const lineCsv = toCsv(

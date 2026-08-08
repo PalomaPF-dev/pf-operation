@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { requireAdminSession } from "@/lib/session";
-import { listFactories, listLines, listReports } from "@/lib/db";
+import { getUserScope, listFactories, listLines, listReports, scopeFactoryIds } from "@/lib/db";
 import { deleteReportAction } from "@/lib/actions";
 import { formatDate, formatDateTime, formatHours, monthStartString, todayString } from "@/lib/format";
 import {
@@ -35,7 +35,7 @@ export default async function ReportsPage({
     status?: string;
   }>;
 }) {
-  await requireAdminSession();
+  const session = await requireAdminSession();
   const sp = await searchParams;
   const from = /^\d{4}-\d{2}-\d{2}$/.test(sp.from ?? "") ? sp.from! : monthStartString();
   const to = /^\d{4}-\d{2}-\d{2}$/.test(sp.to ?? "") ? sp.to! : todayString();
@@ -46,10 +46,20 @@ export default async function ReportsPage({
 
   let factories, lines, reports;
   try {
+    // 工場スコープ（工場所属者は管理者でも自工場のみ。工場に所属しない人は全工場）
+    const factoryIds = scopeFactoryIds(await getUserScope(session));
     [factories, lines, reports] = await Promise.all([
-      listFactories(),
-      listLines(),
-      listReports({ dateFrom: from, dateTo: to, factoryId, lineId, overtimeDecision, progressStatus }),
+      listFactories({ factoryIds }),
+      listLines({ factoryIds }),
+      listReports({
+        dateFrom: from,
+        dateTo: to,
+        factoryId,
+        lineId,
+        overtimeDecision,
+        progressStatus,
+        factoryIds,
+      }),
     ]);
   } catch (e) {
     console.error("[reports]", e);

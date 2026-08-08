@@ -1,6 +1,6 @@
 import { Download, Printer } from "lucide-react";
 import { requireAdminSession } from "@/lib/session";
-import { listFactories, listLines, summarize } from "@/lib/db";
+import { getUserScope, listFactories, listLines, scopeFactoryIds, summarize } from "@/lib/db";
 import {
   formatDate,
   formatManHours,
@@ -32,7 +32,7 @@ export default async function SummaryPage({
     group?: string;
   }>;
 }) {
-  await requireAdminSession();
+  const session = await requireAdminSession();
   const sp = await searchParams;
   const from = /^\d{4}-\d{2}-\d{2}$/.test(sp.from ?? "") ? sp.from! : monthStartString();
   const to = /^\d{4}-\d{2}-\d{2}$/.test(sp.to ?? "") ? sp.to! : todayString();
@@ -40,11 +40,16 @@ export default async function SummaryPage({
   const lineId = sp.line || null;
   const groupBy: "factory" | "line" = sp.group === "factory" ? "factory" : "line";
 
-  const filter = { dateFrom: from, dateTo: to, factoryId, lineId, groupBy };
-
   let factories, lines, rows;
   try {
-    [factories, lines, rows] = await Promise.all([listFactories(), listLines(), summarize(filter)]);
+    // 工場スコープ（工場所属者は管理者でも自工場のみ。工場に所属しない人は全工場）
+    const factoryIds = scopeFactoryIds(await getUserScope(session));
+    const filter = { dateFrom: from, dateTo: to, factoryId, lineId, groupBy, factoryIds };
+    [factories, lines, rows] = await Promise.all([
+      listFactories({ factoryIds }),
+      listLines({ factoryIds }),
+      summarize(filter),
+    ]);
   } catch (e) {
     console.error("[summary]", e);
     return (
