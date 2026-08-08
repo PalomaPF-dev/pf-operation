@@ -8,7 +8,7 @@ export interface AppSession {
   userId: string;
   loginId: string;
   userName: string;
-  /** 所属工場（ポータル連携値）。表示の初期値に使うだけで、閲覧範囲は絞らない */
+  /** 所属工場（ポータル連携値）。非 null なら閲覧・入力とも自工場に絞られる（getUserScope） */
   factory: string | null;
   /** 所属部署（ポータル連携値）。マスタ編集の可否判定に使う */
   department: string | null;

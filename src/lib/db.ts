@@ -38,11 +38,18 @@ const toLineType = (v: unknown): LineType => (v === "process" ? "process" : "ass
 
 // ===== 工場マスタ =====
 
-export async function listFactories(): Promise<Factory[]> {
+/** 工場一覧。opts.factoryIds（工場スコープ）を渡すとその工場だけに絞る。 */
+export async function listFactories(
+  opts: { factoryIds?: string[] | null } = {}
+): Promise<Factory[]> {
   await ensureSchema();
   const sql = getSql();
-  const rows = await sql`
-    SELECT id, name, code, sort_order FROM op_factories ORDER BY sort_order, name`;
+  const rows = await sql.query(
+    `SELECT id, name, code, sort_order FROM op_factories
+     WHERE ($1::uuid[] IS NULL OR id = ANY($1))
+     ORDER BY sort_order, name`,
+    [opts.factoryIds ?? null]
+  );
   return rows.map((r: any) => ({
     id: r.id as string,
     name: r.name as string,
@@ -120,9 +127,12 @@ const LINE_SELECT = `
   FROM op_lines l
   JOIN op_factories f ON f.id = l.factory_id`;
 
-/** ラインを休憩時間帯つきで一覧する。activeOnly のとき停止中のラインを除く。 */
+/**
+ * ラインを休憩時間帯つきで一覧する。activeOnly のとき停止中のラインを除く。
+ * opts.factoryIds（工場スコープ）を渡すとその工場のラインだけに絞る。
+ */
 export async function listLines(
-  opts: { factoryId?: string | null; activeOnly?: boolean } = {}
+  opts: { factoryId?: string | null; activeOnly?: boolean; factoryIds?: string[] | null } = {}
 ): Promise<Line[]> {
   await ensureSchema();
   const sql = getSql();
@@ -130,8 +140,9 @@ export async function listLines(
     `${LINE_SELECT}
      WHERE ($1::uuid IS NULL OR l.factory_id = $1)
        AND ($2::boolean = false OR l.active = true)
+       AND ($3::uuid[] IS NULL OR l.factory_id = ANY($3))
      ORDER BY f.sort_order, f.name, l.sort_order, l.name`,
-    [opts.factoryId ?? null, opts.activeOnly === true]
+    [opts.factoryId ?? null, opts.activeOnly === true, opts.factoryIds ?? null]
   );
   return rows.map(mapLine);
 }
@@ -281,10 +292,10 @@ export async function importFactoryLines(): Promise<{ factories: number; lines: 
   return { factories: FACTORY_LINES.factories.length, lines: lineCount };
 }
 
-// ===== 入力範囲（所属工場）の絞り込み =====
+// ===== 工場スコープ（所属工場による閲覧・入力の絞り込み） =====
 
 /**
- * ログインした人の入力範囲。null は無制限（全工場に入力できる）。
+ * ログインした人の工場スコープ。null は無制限（全工場を閲覧・入力できる）。
  * 区別はポータルのログイン情報だけで行う（アプリ側のマスタ登録は使わない）。
  */
 export interface UserScope {
@@ -292,26 +303,38 @@ export interface UserScope {
 }
 
 /**
- * ポータル連携の所属（工場名・部署名）とマスタの工場名を突き合わせて入力範囲を出す。
- * ポータルでは「大口工場」のような工場が部署として登録されているため、部署名も見る。
- * 一致しなければ null（全工場）。生産管理部・ポータル管理者（canEditMaster）は常に全工場。
+ * ポータル連携の所属（工場名・部署名）とマスタの工場名を突き合わせて工場スコープを出す。
+ * **役割では緩めない**（所属工場が基準）。
+ *
+ * - 工場に所属する人（ポータルの部署が「工場」種別＝factory 非NULL）は自工場のみ。
+ *   ポータル管理者・生産管理部であっても、工場に所属していれば同じく自工場のみ。
+ *   所属工場が工場マスタに無いときは安全側で空スコープ（＝何も見えない・入力できない）にする。
+ * - 工場に所属しない人（生産管理部・ポータル管理者など部署が工場でない）は null＝全工場。
+ *
+ * ポータルでは「大口工場」のような工場が部署として登録されることがあるため、部署名も突合する。
  */
 export async function getUserScope(user: {
   factory: string | null;
   department: string | null;
-  canEditMaster: boolean;
 }): Promise<UserScope | null> {
-  if (user.canEditMaster) return null;
   const names = [user.factory, user.department].filter((v): v is string => !!v);
   if (names.length === 0) return null;
   await ensureSchema();
   const sql = getSql();
   const rows = await sql`SELECT id FROM op_factories WHERE name = ANY(${names}::text[])`;
-  if (rows.length === 0) return null;
+  if (rows.length === 0) {
+    // 工場所属なのに工場マスタに一致が無い＝安全側で空。所属が工場でない人は全工場。
+    return user.factory ? { factoryIds: [] } : null;
+  }
   return { factoryIds: (rows as any[]).map((r) => r.id as string) };
 }
 
-/** そのラインに入力できるか。scope が null なら常に true。 */
+/** 一覧クエリへ渡す工場スコープ。null＝制限なし。 */
+export function scopeFactoryIds(scope: UserScope | null): string[] | null {
+  return scope ? scope.factoryIds : null;
+}
+
+/** そのラインを閲覧・入力できるか。scope が null なら常に true。 */
 export function isLineInScope(
   scope: UserScope | null,
   line: { factoryId: string }
@@ -454,6 +477,8 @@ export interface ReportFilter {
   progressStatus?: ProgressStatus | null;
   /** 承認状態で絞る（'pending' | 'approved' | 'rejected'） */
   approvalStatus?: ApprovalStatus | null;
+  /** 工場スコープ。指定するとその工場の報告だけに絞る（リクエスト値の factoryId とは別に必ず効く） */
+  factoryIds?: string[] | null;
   limit?: number;
 }
 
@@ -469,6 +494,7 @@ export async function listReports(filter: ReportFilter = {}): Promise<Report[]> 
        AND ($5::text IS NULL OR r.overtime_decision = $5)
        AND ($6::text IS NULL OR r.progress_status = $6)
        AND ($7::text IS NULL OR r.approval_status = $7)
+       AND ($9::uuid[] IS NULL OR l.factory_id = ANY($9))
      ORDER BY r.report_date DESC, f.sort_order, l.sort_order, r.report_time DESC
      LIMIT $8`,
     [
@@ -480,6 +506,7 @@ export async function listReports(filter: ReportFilter = {}): Promise<Report[]> 
       filter.progressStatus ?? null,
       filter.approvalStatus ?? null,
       Math.min(filter.limit ?? 300, 2000),
+      filter.factoryIds ?? null,
     ]
   );
   return (rows as any[]).map(mapReport);
@@ -971,6 +998,8 @@ export interface SummaryFilter {
   lineId?: string | null;
   /** 'line'（工場×職場）または 'factory'（工場のみ） */
   groupBy?: "line" | "factory";
+  /** 工場スコープ。指定するとその工場だけを集計する（リクエスト値の factoryId とは別に必ず効く） */
+  factoryIds?: string[] | null;
 }
 
 /**
@@ -999,6 +1028,7 @@ export async function summarize(filter: SummaryFilter): Promise<SummaryRow[]> {
        ) d(line_id, report_date) ON d.line_id = l.id
        WHERE ($3::uuid IS NULL OR l.factory_id = $3)
          AND ($4::uuid IS NULL OR l.id = $4)
+         AND ($5::uuid[] IS NULL OR l.factory_id = ANY($5))
      ),
      last_report AS (
        SELECT DISTINCT ON (r.line_id, r.report_date)
@@ -1032,7 +1062,13 @@ export async function summarize(filter: SummaryFilter): Promise<SummaryRow[]> {
      LEFT JOIN op_daily_plans p ON p.line_id = d.line_id AND p.plan_date = d.the_date
      LEFT JOIN last_report lr ON lr.line_id = d.line_id AND lr.report_date = d.the_date
      LEFT JOIN delayed dl ON dl.line_id = d.line_id AND dl.report_date = d.the_date`,
-    [filter.dateFrom, filter.dateTo, filter.factoryId ?? null, filter.lineId ?? null]
+    [
+      filter.dateFrom,
+      filter.dateTo,
+      filter.factoryId ?? null,
+      filter.lineId ?? null,
+      filter.factoryIds ?? null,
+    ]
   );
 
   type Acc = SummaryRow & { factorySort: number; lineSort: number };

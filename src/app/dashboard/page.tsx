@@ -1,7 +1,14 @@
 import Link from "next/link";
 import { AlertTriangle, ClipboardList, Clock, Factory as FactoryIcon } from "lucide-react";
 import { requireAdminSession } from "@/lib/session";
-import { latestReportsByDate, listFactories, listLines, listPlansByDate } from "@/lib/db";
+import {
+  getUserScope,
+  latestReportsByDate,
+  listFactories,
+  listLines,
+  listPlansByDate,
+  scopeFactoryIds,
+} from "@/lib/db";
 import { buildLineStatus, shiftEnd, STATE_CLASS, STATE_LABEL, type LineStatus } from "@/lib/dashboard";
 import { formatDate, formatHours, formatNumber, todayString } from "@/lib/format";
 import { QTY_LABEL, type Factory } from "@/lib/types";
@@ -21,16 +28,19 @@ export default async function DashboardPage({
 }: {
   searchParams: Promise<{ date?: string; factory?: string }>;
 }) {
-  await requireAdminSession();
+  const session = await requireAdminSession();
   const sp = await searchParams;
   const date = /^\d{4}-\d{2}-\d{2}$/.test(sp.date ?? "") ? sp.date! : todayString();
   const factoryId = sp.factory || null;
 
   let factories, lines, plans, lastByLine;
   try {
+    // 工場スコープ（工場所属者は管理者でも自工場のみ。工場に所属しない人は全工場）。
+    // 進捗は lines を起点に組み立てるため、ラインを絞れば計画・報告も自工場分だけになる。
+    const factoryIds = scopeFactoryIds(await getUserScope(session));
     [factories, lines, plans, lastByLine] = await Promise.all([
-      listFactories(),
-      listLines({ factoryId, activeOnly: true }),
+      listFactories({ factoryIds }),
+      listLines({ factoryId, activeOnly: true, factoryIds }),
       listPlansByDate(date, factoryId),
       latestReportsByDate(date, factoryId),
     ]);

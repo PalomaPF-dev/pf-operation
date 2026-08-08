@@ -47,7 +47,7 @@ export default async function ReportPage({
     [factories, lines, scope] = await Promise.all([
       listFactories(),
       listLines({ activeOnly: true }),
-      // 工場の管理者はポータルの所属で自工場に絞る（生産管理部・ポータル管理者は全工場）
+      // 工場に所属する人は自工場に絞る（工場に所属しない生産管理部・ポータル管理者は全工場）
       getUserScope(session),
     ]);
   } catch (e) {
